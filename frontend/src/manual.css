@@ -1,0 +1,7 @@
+.manualParams{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:16px;padding:14px;background:#f2f7f8;border-left:3px solid #078b83}.segments{flex-wrap:wrap}.segments button{white-space:nowrap}@media(max-width:800px){.manualParams{grid-template-columns:1fr}}
+.markerRow{display:grid;grid-template-columns:180px 1fr auto;gap:12px;align-items:start;margin-bottom:10px}
+.markerRow .markerLabel{padding-top:8px;font-weight:600;color:#0b5}
+.markerRow .markerName{height:36px}
+.markerRow textarea{width:100%;min-height:56px}
+.markerRow .rowRemove{align-self:start;height:36px;white-space:nowrap}
+@media(max-width:800px){.markerRow{grid-template-columns:1fr}}

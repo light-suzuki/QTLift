@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node / frontend build
+frontend/node_modules/
+frontend/dist/
+
+# Runtime data (jobs, caches, machine-specific catalogs) — never commit
+data/
+alignment_cache/
+output/
+
+# Local genome catalog and any private references
+data/local_genomes.json
+*.local.json
+
+# Logs / OS cruft
+*.log
+.DS_Store
+Thumbs.db

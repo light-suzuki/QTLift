@@ -1,0 +1,25 @@
+##gff-version 3
+Chr1	QTLift	gene	170	210	.	+	.	ID=gene1;Name=gene1
+Chr1	QTLift	mRNA	170	210	.	+	.	ID=gene1.t1;Parent=gene1
+Chr1	QTLift	CDS	170	210	.	+	0	ID=gene1.cds;Parent=gene1.t1
+Chr1	QTLift	gene	280	320	.	+	.	ID=gene2;Name=gene2
+Chr1	QTLift	mRNA	280	320	.	+	.	ID=gene2.t1;Parent=gene2
+Chr1	QTLift	CDS	280	320	.	+	0	ID=gene2.cds;Parent=gene2.t1
+Chr1	QTLift	gene	390	430	.	+	.	ID=gene3;Name=gene3
+Chr1	QTLift	mRNA	390	430	.	+	.	ID=gene3.t1;Parent=gene3
+Chr1	QTLift	CDS	390	430	.	+	0	ID=gene3.cds;Parent=gene3.t1
+Chr1	QTLift	gene	500	540	.	+	.	ID=gene4;Name=gene4
+Chr1	QTLift	mRNA	500	540	.	+	.	ID=gene4.t1;Parent=gene4
+Chr1	QTLift	CDS	500	540	.	+	0	ID=gene4.cds;Parent=gene4.t1
+Chr1	QTLift	gene	610	650	.	+	.	ID=gene5;Name=gene5
+Chr1	QTLift	mRNA	610	650	.	+	.	ID=gene5.t1;Parent=gene5
+Chr1	QTLift	CDS	610	650	.	+	0	ID=gene5.cds;Parent=gene5.t1
+Chr1	QTLift	gene	720	760	.	+	.	ID=gene6;Name=gene6
+Chr1	QTLift	mRNA	720	760	.	+	.	ID=gene6.t1;Parent=gene6
+Chr1	QTLift	CDS	720	760	.	+	0	ID=gene6.cds;Parent=gene6.t1
+Chr1	QTLift	gene	830	870	.	+	.	ID=gene7;Name=gene7
+Chr1	QTLift	mRNA	830	870	.	+	.	ID=gene7.t1;Parent=gene7
+Chr1	QTLift	CDS	830	870	.	+	0	ID=gene7.cds;Parent=gene7.t1
+Chr1	QTLift	gene	940	980	.	+	.	ID=gene8;Name=gene8
+Chr1	QTLift	mRNA	940	980	.	+	.	ID=gene8.t1;Parent=gene8
+Chr1	QTLift	CDS	940	980	.	+	0	ID=gene8.cds;Parent=gene8.t1
