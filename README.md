@@ -8,7 +8,7 @@ QTLift is a small, local, Windows-first web application. You give it an interval
 
 It is **species-agnostic**: anything with a FASTA genome and a GFF3 annotation works — plants, animals, fungi, microbes. Nothing about the tool is tied to a particular organism.
 
-> Built with "vibe coding" — designed and implemented collaboratively with **Claude** and **OpenAI Codex**. It is open source (MIT); please fork it, adapt it to your organism and workflow, and send improvements back. 🙌
+> Built with "vibe coding" — designed and implemented collaboratively with **Claude** and **[OpenAI Codex](https://openai.com/codex/)**. It is open source (MIT); please fork it, adapt it to your organism and workflow, and send improvements back. 🙌
 
 ---
 
