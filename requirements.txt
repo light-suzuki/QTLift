@@ -1,6 +1,6 @@
 fastapi>=0.116,<1
 uvicorn[standard]>=0.35,<1
 pydantic>=2.10,<3
-biopython>=1.85,<2
+biopython>=1.87,<2
 python-multipart>=0.0.20,<1
 
