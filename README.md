@@ -1,5 +1,10 @@
 # QTLift
 
+[![CI](https://github.com/light-suzuki/QTLift/actions/workflows/ci.yml/badge.svg)](https://github.com/light-suzuki/QTLift/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/light-suzuki/=semver)](https://github.com/light-suzuki/QTLift/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+
 **Lift a QTL / candidate interval from one reference genome onto another — for any species — with evidence and a confidence score.**
 
 🌐 **[English](#english) · [日本語](#日本語)**
