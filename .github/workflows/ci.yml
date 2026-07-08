@@ -19,4 +19,4 @@ jobs:
       - name: Syntax check
         run: python -m compileall backend run.py scripts tests
       - name: Import smoke
-        run: python -c "from backend.main import app; print(app.title)"
+        run: PYTHONPATH=backend python -c "import qtlift.api, qtlift.pipeline; print('qtlift import ok')"
