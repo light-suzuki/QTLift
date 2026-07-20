@@ -44,6 +44,30 @@ class QTLiftTests(unittest.TestCase):
    with gzip.open(paf,'wt') as h:h.write('Chr1\t1000\t99\t900\t+\tTarget1\t2000\t499\t1300\t780\t801\t60\ttp:A:P\tcg:Z:801M\n')
    iv,w=lift_interval(paf,'Chr1',200,800,'Target1')
    self.assertEqual((iv.contig,iv.start,iv.end,iv.strand),('Target1',600,1200,'+'));self.assertFalse(w)
+ def test_liftover_merges_across_chunk_boundary(self):
+  with tempfile.TemporaryDirectory() as d:
+   paf=Path(d)/'pair.paf.gz'
+   with gzip.open(paf,'wt') as h:
+    h.write('QTLIFT|Chr1|0\t20000000\t0\t20000000\t+\tTarget1\t40000000\t0\t20000000\t20000000\t20000000\t60\n')
+    h.write('QTLIFT|Chr1|20000000\t20000000\t0\t20000000\t+\tTarget1\t40000000\t20000000\t40000000\t20000000\t20000000\t60\n')
+   iv,w=lift_interval(paf,'Chr1',19500000,20500000,'Target1')
+   self.assertEqual((iv.contig,iv.start,iv.end,iv.strand),('Target1',19500000,20500000,'+'));self.assertEqual(iv.end-iv.start+1,1000001)
+ def test_liftover_opposite_strand_chunks_stay_ambiguous(self):
+  with tempfile.TemporaryDirectory() as d:
+   paf=Path(d)/'pair.paf.gz'
+   with gzip.open(paf,'wt') as h:
+    h.write('QTLIFT|Chr1|0\t20000000\t0\t20000000\t+\tTarget1\t40000000\t0\t20000000\t20000000\t20000000\t60\n')
+    h.write('QTLIFT|Chr1|20000000\t20000000\t0\t20000000\t-\tTarget1\t40000000\t20000000\t40000000\t20000000\t20000000\t60\n')
+   iv,w=lift_interval(paf,'Chr1',19500000,20500000,'Target1')
+   self.assertIn('ambiguous',' '.join(w).lower());self.assertLess(iv.end-iv.start+1,1000001)
+ def test_liftover_distant_same_strand_blocks_not_merged(self):
+  with tempfile.TemporaryDirectory() as d:
+   paf=Path(d)/'pair.paf.gz'
+   with gzip.open(paf,'wt') as h:
+    h.write('QTLIFT|Chr1|0\t20000000\t0\t20000000\t+\tTarget1\t200000000\t0\t20000000\t20000000\t20000000\t60\n')
+    h.write('QTLIFT|Chr1|20000000\t20000000\t0\t20000000\t+\tTarget1\t200000000\t100000000\t120000000\t20000000\t20000000\t60\n')
+   iv,w=lift_interval(paf,'Chr1',19500000,20500000,'Target1')
+   self.assertLess(iv.end-iv.start+1,1000001);self.assertIn('partial',' '.join(w).lower())
  def test_blast_contig_entry_resolution(self):
   metadata='gnl|BL_ORD_ID|0\tchr1\ngnl|BL_ORD_ID|1\tchr2 description\n'
   self.assertEqual(_find_blast_entry(metadata,'chr2'),'gnl|BL_ORD_ID|1')

@@ -139,10 +139,52 @@ def _project(record: list[str], position: int) -> int:
     return round(tend - fraction * (tend - tstart))
 
 
+def _covered_length(rows: list[list[str]], start: int, end: int) -> int:
+    """Length of [start, end] covered by the union of the rows' 1-based query spans."""
+    spans = sorted((max(start, int(r[2]) + 1), min(end, int(r[3]))) for r in rows)
+    total, reach = 0, start - 1
+    for s, e in spans:
+        s = max(s, reach + 1)
+        if e >= s:
+            total += e - s + 1
+            reach = e
+    return total
+
+
+def _collinear(r1: list[str], r2: list[str], strand: str, max_gap: int) -> bool:
+    """True when two same-contig, same-strand records (r1 before r2 in query order) are a
+    single collinear alignment merely split apart, e.g. by the query FASTA chunk boundary."""
+    src_gap = int(r2[2]) - int(r1[3])
+    tgt_gap = int(r2[7]) - int(r1[8]) if strand == "+" else int(r1[7]) - int(r2[8])
+    return -max_gap <= src_gap <= max_gap and -max_gap <= tgt_gap <= max_gap
+
+
+def _best_run(rows: list[list[str]], strand: str, start: int, end: int, max_gap: int) -> list[list[str]]:
+    """Split rows (one target contig + strand) into maximal collinear runs and return the run
+    covering the most of the requested interval, so genuine breaks are not merged over."""
+    rows = sorted(rows, key=lambda r: int(r[2]))
+    runs: list[list[list[str]]] = []
+    for r in rows:
+        if runs and _collinear(runs[-1][-1], r, strand, max_gap):
+            runs[-1].append(r)
+        else:
+            runs.append([r])
+    return max(runs, key=lambda run: _covered_length(run, start, end))
+
+
 def lift_interval(paf_gz: str | Path, source_contig: str, start: int, end: int,
-                  target_contig: str | None = None) -> tuple[Interval | None, list[str]]:
-    """Project a 1-based source interval through the best overlapping primary PAF alignment."""
-    candidates: list[tuple[int, int, list[str]]] = []
+                  target_contig: str | None = None, max_gap: int = 100_000) -> tuple[Interval | None, list[str]]:
+    """Project a 1-based source interval onto the target assembly.
+
+    Records are de-chunked, grouped by (target contig, strand), and the group covering most of
+    the interval is chosen. Within it, adjacent collinear alignments — including the two halves
+    an interval is split into when it crosses a query FASTA chunk boundary — are merged so the
+    interval projects as one continuous span instead of being truncated to a single chunk.
+    ``max_gap`` bounds how far apart (in source and target bases) records may sit and still be
+    treated as collinear; genuine cross-contig, opposite-strand, or distant records are reported
+    as ambiguous/partial rather than silently merged.
+    """
+    candidates: list[list[str]] = []
     with gzip.open(paf_gz, "rt", encoding="utf-8") as handle:
         for line in handle:
             row = line.rstrip().split("\t")
@@ -165,20 +207,36 @@ def lift_interval(paf_gz: str | Path, source_contig: str, start: int, end: int,
             if query_name != source_contig or (target_contig and target_name != target_contig):
                 continue
             qstart, qend = int(row[2]) + 1, int(row[3])
-            overlap = max(0, min(end, qend) - max(start, qstart) + 1)
-            if overlap:
-                mapq = int(row[11])
-                candidates.append((overlap, mapq, row))
+            if max(0, min(end, qend) - max(start, qstart) + 1):
+                candidates.append(row)
     if not candidates:
         return None, ["Liftover failed: the source interval has no cached whole-genome alignment."]
-    _, mapq, best = max(candidates, key=lambda item: (item[0], item[1], int(item[2][9])))
-    qstart, qend = int(best[2]) + 1, int(best[3])
-    covered_start, covered_end = max(start, qstart), min(end, qend)
-    a, b = _project(best, covered_start), _project(best, covered_end)
+    interval_len = end - start + 1
+    groups: dict[tuple[str, str], list[list[str]]] = {}
+    for row in candidates:
+        groups.setdefault((row[5], row[4]), []).append(row)
+    ranked = sorted(groups.items(), key=lambda kv: _covered_length(kv[1], start, end), reverse=True)
+    (target_name, strand), rows = ranked[0]
+    run = _best_run(rows, strand, start, end, max_gap)
+    covered_start = max(start, min(int(r[2]) for r in run) + 1)
+    covered_end = min(end, max(int(r[3]) for r in run))
+
+    def record_for(pos: int) -> list[str]:
+        covering = [r for r in run if int(r[2]) + 1 <= pos <= int(r[3])]
+        return covering[0] if covering else min(run, key=lambda r: min(abs(int(r[2]) + 1 - pos), abs(int(r[3]) - pos)))
+
+    a, b = _project(record_for(covered_start), covered_start), _project(record_for(covered_end), covered_end)
     warnings: list[str] = []
-    coverage = (covered_end - covered_start + 1) / (end - start + 1)
+    coverage = (covered_end - covered_start + 1) / interval_len
+    if len(run) > 1:
+        warnings.append(f"Liftover merged {len(run)} adjacent alignment blocks (e.g. across a chunk boundary) into one collinear interval.")
+    if sum(1 for _, g in ranked[1:] if _covered_length(g, start, end) >= 0.2 * interval_len):
+        warnings.append("Liftover evidence is split across target contigs or orientations; the largest collinear block was reported and the mapping is ambiguous.")
+    elif _covered_length(rows, start, end) > _covered_length(run, start, end) + 0.05 * interval_len:
+        warnings.append("Liftover alignments on the target contig are not collinear across the interval; only the largest collinear block was projected (partial).")
     if coverage < 0.8:
         warnings.append(f"Liftover alignment covers only {coverage:.1%} of the source interval.")
+    mapq = min(int(r[11]) for r in run)
     if mapq < 20:
         warnings.append(f"Liftover alignment has low mapping quality ({mapq}).")
-    return Interval(best[5], min(a, b), max(a, b), best[4], "liftover"), warnings
+    return Interval(target_name, min(a, b), max(a, b), strand, "liftover"), warnings
