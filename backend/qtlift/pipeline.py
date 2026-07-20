@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from .analysis import combine_intervals, evaluate_synteny, exact_hits, marker_interval, score_confidence, select_anchors
+from .analysis import combine_intervals, evaluate_synteny, exact_hits, marker_interval, orientation_audit, score_confidence, select_anchors
 from .genomes import detect_genomes, genes_in_interval, sequence_slice, validate_interval
 from .markers import parse_marker
 from .models import Params
@@ -140,6 +140,7 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
                "candidates": [x.as_dict() for x in candidates], "final": final.as_dict() if final else None,
                "final_label": f"{target['name']} {final.contig}:{final.start:,}-{final.end:,}" if final else "Unavailable",
                "evidence": {"liftover": liftover.as_dict() if liftover else None, "markers": marker_iv.as_dict() if marker_iv else None, "synteny": synteny.as_dict() if synteny else None},
+               "orientation": orientation_audit(synteny, marker_iv, liftover),
                "marker_hits": [asdict(x) for x in marker_hits], "anchor_hits": [asdict(x) for x in anchor_hits], "anchors": [asdict(x) for x in anchors],
                "params": asdict(params), "tools": tools, "mapping_backend": backend, "effective_backend": effective_backend,
                "liftover_cache": str(liftover_cache) if liftover_cache else None}
