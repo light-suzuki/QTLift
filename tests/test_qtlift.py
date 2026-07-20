@@ -1,7 +1,7 @@
 import gzip,json,shutil,sys,tempfile,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/"backend"))
-from qtlift.analysis import combine_intervals,evaluate_synteny,score_confidence,select_anchors
+from qtlift.analysis import combine_intervals,evaluate_synteny,orientation_audit,score_confidence,select_anchors
 from qtlift.genomes import detect_genomes,genes_in_interval,validate_interval
 from qtlift.markers import parse_marker
 from qtlift.models import Gene,Hit,Interval,Params
@@ -68,4 +68,37 @@ class QTLiftTests(unittest.TestCase):
    p={"job_id":"test","genome_root":str(self.root),"target_ref":"RefA","source_ref":"RefB","contig":"Chr1","start":100,"end":850,"peak":450,"name":"test","preset":"Standard","markers":{"left":motif(1),"peak":motif(4),"right":motif(7)}}
    r=run_job(p,d);self.assertEqual(r['synteny_state'],'forward');self.assertIn(r['confidence'],('High','Medium'));self.assertTrue((Path(d)/'test'/'report.html').exists());self.assertIn('Liftover'," ".join(r['warnings']))
    self.assertEqual(r['effective_backend'],'wsl')
+
+class OrientationTests(unittest.TestCase):
+ """Preserve/validate interval orientation when reconciling independent evidence (#19)."""
+ def _hits(self,n,strand='+'):
+  return [Hit(str(i),'chr1',100+i,101+i,strand,99,100,source_start=i) for i in range(n)]
+ def test_reverse_synteny_plus_marker_stays_reverse(self):
+  syn=Interval('chr1',100,300,'-','synteny');mk=Interval('chr1',150,250,'.','markers')
+  res=combine_intervals(syn,mk,None);self.assertEqual(len(res),1);self.assertEqual(res[0].strand,'-')
+ def test_forward_synteny_plus_marker_stays_forward(self):
+  syn=Interval('chr1',100,300,'+','synteny');mk=Interval('chr1',150,250,'.','markers')
+  res=combine_intervals(syn,mk,None);self.assertEqual(res[0].strand,'+')
+ def test_marker_only_unresolved_orientation(self):
+  mk=Interval('chr1',150,250,'.','markers')
+  self.assertEqual(combine_intervals(None,mk,None)[0].strand,'.')
+  c,r,w=score_confidence('partial',None,mk,None,self._hits(5,'.'))
+  self.assertIn('orientation',' '.join(w).lower())
+ def test_opposite_synteny_and_liftover_conflict_not_high(self):
+  syn=Interval('chr1',100,300,'-','synteny');lift=Interval('chr1',120,280,'+','liftover')
+  c,r,w=score_confidence('reverse',syn,None,lift,self._hits(6))
+  self.assertEqual(c,'Manual check');self.assertIn('orientation',' '.join(w).lower())
+  self.assertEqual(len(combine_intervals(syn,None,lift)),2)
+ def test_agreeing_informative_evidence_combines(self):
+  syn=Interval('chr1',100,300,'+','synteny');lift=Interval('chr1',120,280,'+','liftover')
+  c,r,w=score_confidence('forward',syn,None,lift,self._hits(6));self.assertEqual(c,'High')
+  res=combine_intervals(syn,None,lift);self.assertEqual(len(res),1);self.assertEqual(res[0].strand,'+')
+ def test_non_overlapping_evidence_stays_separate(self):
+  syn=Interval('chr1',100,200,'+','synteny');mk=Interval('chr1',500,600,'.','markers')
+  self.assertEqual(len(combine_intervals(syn,mk,None)),2)
+ def test_orientation_audit_records_provenance(self):
+  syn=Interval('chr1',100,300,'-','synteny');mk=Interval('chr1',150,250,'.','markers')
+  aud=orientation_audit(syn,mk,None)
+  self.assertEqual(aud['strand'],'-');self.assertEqual(aud['orientation_evidence'],['synteny'])
+  self.assertEqual(aud['uninformative_orientation_evidence'],['markers']);self.assertFalse(aud['conflict'])
 if __name__=='__main__':unittest.main()

@@ -98,9 +98,30 @@ def marker_interval(hits: list[Hit]) -> tuple[Interval | None, list[str]]:
     return Interval(major, min(h.start for h in rows), max(h.end for h in rows), ".", "markers"), []
 
 
+def reconcile_orientation(intervals: list[Interval]) -> dict:
+    """Reconcile the strand of a set of evidence intervals. An informative +/- strand always
+    beats an uninformative '.', informative strands that disagree are flagged as a conflict, and
+    the result is '.' only when no evidence establishes orientation."""
+    informative = [x for x in intervals if x.strand in ("+", "-")]
+    strands = {x.strand for x in informative}
+    conflict = len(strands) > 1
+    return {
+        "strand": "." if conflict or not strands else next(iter(strands)),
+        "orientation_evidence": sorted({x.evidence for x in informative if x.evidence}),
+        "uninformative_orientation_evidence": sorted({x.evidence for x in intervals if x.strand not in ("+", "-") and x.evidence}),
+        "conflict": conflict,
+    }
+
+
+def orientation_audit(synteny: Interval | None, marker: Interval | None, liftover: Interval | None) -> dict:
+    """Auditable record of how the reported orientation was determined across evidence classes."""
+    return reconcile_orientation([x for x in (synteny, marker, liftover) if x])
+
+
 def score_confidence(synteny_state: str, synteny: Interval | None, marker: Interval | None, liftover: Interval | None, anchor_hits: list[Hit]) -> tuple[str, list[str], list[str]]:
     reasons, warnings = [], []
     evidence = [x for x in (synteny, marker, liftover) if x]
+    oriented = [x for x in evidence if x.strand in ("+", "-")]
     unique = sum(h.hit_count == 1 for h in anchor_hits)
     if synteny_state in ("split", "failed"):
         return "Manual check", [f"Synteny state is {synteny_state}."], ["Mapping requires manual review."]
@@ -108,9 +129,15 @@ def score_confidence(synteny_state: str, synteny: Interval | None, marker: Inter
     if len(evidence) >= 2:
         contigs = {x.contig for x in evidence}
         agree = len(contigs) == 1 and max(x.start for x in evidence) <= min(x.end for x in evidence)
-        if not agree: warnings.append("Marker/synteny/liftover intervals are inconsistent.")
         if not agree:
+            warnings.append("Marker/synteny/liftover intervals are inconsistent.")
             return "Manual check", ["Independent evidence intervals disagree and must be reviewed separately."], warnings
+        if len({x.strand for x in oriented}) > 1:
+            detail = ", ".join(f"{x.evidence or 'evidence'} {x.strand}" for x in oriented)
+            warnings.append(f"Conflicting orientation evidence: {detail}; intervals retained separately.")
+            return "Manual check", ["Independent evidence overlaps but disagrees on orientation and cannot be combined."], warnings
+    if evidence and not oriented:
+        warnings.append("Orientation is unresolved: no strand-informative evidence; the interval strand is reported as '.'.")
     if synteny_state in ("forward", "reverse") and unique >= 4 and len(evidence) >= 2 and agree:
         confidence = "High"; reasons.append("At least two evidence classes agree with four or more unique collinear anchors.")
     elif synteny and unique >= 3 and synteny_state in ("forward", "reverse", "partial"):
@@ -128,11 +155,15 @@ def combine_intervals(synteny: Interval | None, marker: Interval | None, liftove
     for item in available: grouped.setdefault(item.contig, []).append(item)
     result: list[Interval] = []
     for contig, rows in grouped.items():
-        overlap_start, overlap_end = max(x.start for x in rows), min(x.end for x in rows)
         if len(rows) == 1:
-            result.append(rows[0])
-        elif overlap_start <= overlap_end:
-            result.append(Interval(contig, overlap_start, overlap_end, rows[0].strand, "+".join(x.evidence for x in rows)))
+            result.append(rows[0]); continue
+        overlap_start, overlap_end = max(x.start for x in rows), min(x.end for x in rows)
+        orient = reconcile_orientation(rows)
+        # Merge only when the intervals overlap AND their informative orientations agree; an
+        # uninformative '.' never overwrites a +/- strand, and a real orientation conflict keeps
+        # the evidence intervals separate instead of flattening it into one.
+        if overlap_start <= overlap_end and not orient["conflict"]:
+            result.append(Interval(contig, overlap_start, overlap_end, orient["strand"], "+".join(x.evidence for x in rows)))
         else:
             result.extend(rows)
     return result
