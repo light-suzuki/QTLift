@@ -166,4 +166,8 @@ def combine_intervals(synteny: Interval | None, marker: Interval | None, liftove
             result.append(Interval(contig, overlap_start, overlap_end, orient["strand"], "+".join(x.evidence for x in rows)))
         else:
             result.extend(rows)
+    # The pipeline takes candidates[0] as the final interval, so order deterministically —
+    # most evidence classes first, then widest span, then contig/start — rather than leaving it
+    # to dict-insertion order.
+    result.sort(key=lambda iv: (-len(iv.evidence.split("+")) if iv.evidence else 0, -(iv.end - iv.start), iv.contig, iv.start))
     return result

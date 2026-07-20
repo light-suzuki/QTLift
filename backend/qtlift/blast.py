@@ -141,7 +141,7 @@ def blast_many(queries: list[tuple[str, str, int | None]], target_fasta: str, ba
         if backend=="windows":
             exe=shutil.which("blastn")
             if not exe: raise RuntimeError("Windows blastn is unavailable")
-            cmd=[exe,"-query",str(query),"-subject",str(Path(target_fasta).resolve()),"-outfmt",f"6 {FIELDS}","-dust","no"]
+            cmd=[exe,"-query",str(query),"-subject",str(Path(target_fasta).resolve()),"-outfmt",f"6 {FIELDS}","-dust","no","-max_target_seqs","20"]
         else:
             wsl=shutil.which("wsl.exe") or shutil.which("wsl")
             if not wsl: raise RuntimeError("wsl.exe is unavailable")
