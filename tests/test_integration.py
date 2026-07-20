@@ -51,22 +51,28 @@ class IntegrationTests(unittest.TestCase):
 
     @unittest.skipUnless(HAVE_MINIMAP2, "requires minimap2 (native binary or via WSL)")
     def test_minimap2_liftover_projects_interval(self):
-        seq = _random_seq(11, 60_000)
+        # A realistic cross-assembly pair: 200 kb with ~1% substitutions and no indels. (A
+        # perfectly identical pair is a degenerate case some minimap2 versions decline to align.)
+        base = _random_seq(11, 200_000)
+        chars = list(base)
+        mut = random.Random(5)
+        for i in range(0, len(chars), 100):
+            chars[i] = mut.choice("ACGT")
         with tempfile.TemporaryDirectory() as d:
             src = Path(d) / "src.fa"
             tgt = Path(d) / "tgt.fa"
-            src.write_text(f">chr1\n{seq}\n", encoding="ascii")
-            tgt.write_text(f">chr1\n{seq}\n", encoding="ascii")  # identical -> collinear alignment
+            src.write_text(f">chr1\n{base}\n", encoding="ascii")
+            tgt.write_text(">chr1\n" + "".join(chars) + "\n", encoding="ascii")
             cache = Path(d) / "cache"
             cache.mkdir()
             paf, cache_hit = build_alignment_cache(src, tgt, cache)
             self.assertFalse(cache_hit)
-            interval, _warnings = lift_interval(paf, "chr1", 20_000, 30_000)
-        self.assertIsNotNone(interval, "no liftover interval from identical 60 kb sequences")
+            interval, _warnings = lift_interval(paf, "chr1", 80_000, 120_000)
+        self.assertIsNotNone(interval, "no liftover interval from a 200 kb collinear pair")
         self.assertEqual(interval.contig, "chr1")
-        # Identical sequences: the interval must project onto essentially itself.
-        self.assertLess(abs(interval.start - 20_000), 300)
-        self.assertLess(abs(interval.end - 30_000), 300)
+        # Substitutions do not shift coordinates, so the interval projects onto ~itself.
+        self.assertLess(abs(interval.start - 80_000), 1000)
+        self.assertLess(abs(interval.end - 120_000), 1000)
 
 
 if __name__ == "__main__":
