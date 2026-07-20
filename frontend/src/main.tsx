@@ -387,6 +387,12 @@ function SetupPage({ genomes, root, health, onDone, t }: any) {
           </Field>
         </div>
         <p className="cardHint">{t.stepIntervalHint}</p>
+        {(() => {
+          const s = parseCoord(start), e = parseCoord(end);
+          return s !== undefined && e !== undefined && e >= s
+            ? <p className="cardHint intervalLen">{t.intervalLength}: <b>{(e - s + 1).toLocaleString()} bp</b></p>
+            : null;
+        })()}
       </section>
 
       <section className="card">
@@ -659,6 +665,7 @@ function Results({ job, t }: any) {
       )}
       <div className="metaRow">
         <span>{t.orientation}: <b>{t[syntenyKey] || SYNTENY_LABEL[job.synteny_state] || job.synteny_state}</b></span>
+        {job.source && <span title={t.intervalLengthTip}>{t.intervalLength}: <b>{(job.source.end - job.source.start + 1).toLocaleString()} bp</b>{job.final && <> → <b>{(job.final.end - job.final.start + 1).toLocaleString()} bp</b></>}</span>}
         <span title={t.uniqueAnchorsTip}>{t.uniqueAnchors}: <b>{uniqA.length} / {anchors.length}</b> <span className="ori" title={t.oriCountsTip}>{fwd}→ · {rev}←</span></span>
         {uniqM.length > 0 && <span>{t.markerEvidence}: <b>{uniqM.length}</b></span>}
         {job.target_contig && <span>{t.targetContig}: <b>{job.target_contig}</b></span>}
@@ -815,6 +822,7 @@ function HitTable({ rows, t, kind }: any) {
           ))}
         </tbody>
       </table>
+      {rows.length > 12 && <p className="tableMore">{t.showingFirst.replace("{total}", String(rows.length))}</p>}
     </div>
   );
 }

@@ -47,3 +47,7 @@ header small{color:#5c6f82}
 .evTick{fill:#5f7386;font-size:12.5px}
 .evLabel{fill:#33495c}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible{outline:2px solid #078b83;outline-offset:1px}
+/* "showing first 12 of N" footer under truncated hit tables, and the live interval-length readout */
+.tableMore{margin:7px 2px 2px;font-size:11.5px;color:#5f7488}
+.intervalLen{margin-top:8px}
+.intervalLen b{color:#12303f;font-variant-numeric:tabular-nums}

@@ -30,5 +30,8 @@
   "intervalPlotCaption":"Top = source-B interval, bottom = target-A interval. Lines link each anchor's correspondence; colour shows orientation (green = forward, orange = reverse).",
   "confidenceTip":"Confidence reflects how well the independent lines of evidence (synteny, markers, liftover) agree. See the How-it-works tab for details.",
   "uniqueAnchorsTip":"Uniquely-mapped anchors / total anchors.",
-  "oriCountsTip":"Number of anchors matching in the forward (→) and reverse (←) direction."
+  "oriCountsTip":"Number of anchors matching in the forward (→) and reverse (←) direction.",
+  "showingFirst":"Showing the first 12 of {total} rows — the full data is in the download TSVs below.",
+  "intervalLength":"Interval length",
+  "intervalLengthTip":"Source-B interval length → final-A interval length. A large increase is a sign to check the mapping."
 }
