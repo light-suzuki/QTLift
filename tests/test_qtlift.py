@@ -1,7 +1,7 @@
-import gzip,json,sys,tempfile,unittest
+import gzip,json,shutil,sys,tempfile,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/"backend"))
-from qtlift.analysis import combine_intervals,evaluate_synteny,score_confidence,select_anchors
+from qtlift.analysis import combine_intervals,evaluate_synteny,orientation_audit,score_confidence,select_anchors
 from qtlift.genomes import anchor_sequence,detect_genomes,genes_in_interval,validate_interval
 from qtlift.markers import parse_marker
 from qtlift.models import Gene,Hit,Interval,Params
@@ -44,6 +44,30 @@ class QTLiftTests(unittest.TestCase):
    with gzip.open(paf,'wt') as h:h.write('Chr1\t1000\t99\t900\t+\tTarget1\t2000\t499\t1300\t780\t801\t60\ttp:A:P\tcg:Z:801M\n')
    iv,w=lift_interval(paf,'Chr1',200,800,'Target1')
    self.assertEqual((iv.contig,iv.start,iv.end,iv.strand),('Target1',600,1200,'+'));self.assertFalse(w)
+ def test_liftover_merges_across_chunk_boundary(self):
+  with tempfile.TemporaryDirectory() as d:
+   paf=Path(d)/'pair.paf.gz'
+   with gzip.open(paf,'wt') as h:
+    h.write('QTLIFT|Chr1|0\t20000000\t0\t20000000\t+\tTarget1\t40000000\t0\t20000000\t20000000\t20000000\t60\n')
+    h.write('QTLIFT|Chr1|20000000\t20000000\t0\t20000000\t+\tTarget1\t40000000\t20000000\t40000000\t20000000\t20000000\t60\n')
+   iv,w=lift_interval(paf,'Chr1',19500000,20500000,'Target1')
+   self.assertEqual((iv.contig,iv.start,iv.end,iv.strand),('Target1',19500000,20500000,'+'));self.assertEqual(iv.end-iv.start+1,1000001)
+ def test_liftover_opposite_strand_chunks_stay_ambiguous(self):
+  with tempfile.TemporaryDirectory() as d:
+   paf=Path(d)/'pair.paf.gz'
+   with gzip.open(paf,'wt') as h:
+    h.write('QTLIFT|Chr1|0\t20000000\t0\t20000000\t+\tTarget1\t40000000\t0\t20000000\t20000000\t20000000\t60\n')
+    h.write('QTLIFT|Chr1|20000000\t20000000\t0\t20000000\t-\tTarget1\t40000000\t20000000\t40000000\t20000000\t20000000\t60\n')
+   iv,w=lift_interval(paf,'Chr1',19500000,20500000,'Target1')
+   self.assertIn('ambiguous',' '.join(w).lower());self.assertLess(iv.end-iv.start+1,1000001)
+ def test_liftover_distant_same_strand_blocks_not_merged(self):
+  with tempfile.TemporaryDirectory() as d:
+   paf=Path(d)/'pair.paf.gz'
+   with gzip.open(paf,'wt') as h:
+    h.write('QTLIFT|Chr1|0\t20000000\t0\t20000000\t+\tTarget1\t200000000\t0\t20000000\t20000000\t20000000\t60\n')
+    h.write('QTLIFT|Chr1|20000000\t20000000\t0\t20000000\t+\tTarget1\t200000000\t100000000\t120000000\t20000000\t20000000\t60\n')
+   iv,w=lift_interval(paf,'Chr1',19500000,20500000,'Target1')
+   self.assertLess(iv.end-iv.start+1,1000001);self.assertIn('partial',' '.join(w).lower())
  def test_blast_contig_entry_resolution(self):
   metadata='gnl|BL_ORD_ID|0\tchr1\ngnl|BL_ORD_ID|1\tchr2 description\n'
   self.assertEqual(_find_blast_entry(metadata,'chr2'),'gnl|BL_ORD_ID|1')
@@ -61,6 +85,7 @@ class QTLiftTests(unittest.TestCase):
   confidence,reasons,warnings=score_confidence('forward',syn,marker,None,hs)
   self.assertEqual(confidence,'Manual check');self.assertEqual(len(combine_intervals(syn,marker,None)),2)
   self.assertIn('inconsistent',' '.join(warnings))
+ @unittest.skipUnless(shutil.which("wsl.exe"), "asserts the WSL BLAST backend; unavailable on non-Windows CI")
  def test_sample_pipeline(self):
   with tempfile.TemporaryDirectory() as d:
    from scripts.create_sample_data import motif
@@ -122,4 +147,37 @@ class Gff3ParserTests(unittest.TestCase):
    got=anchor_sequence(fa,gene)
    exon1,exon2=seq[10:20],seq[30:40]
    self.assertEqual(got,str(Seq(exon1+exon2).reverse_complement()));self.assertTrue(got.startswith(str(Seq(exon2).reverse_complement())))
+
+class OrientationTests(unittest.TestCase):
+ """Preserve/validate interval orientation when reconciling independent evidence (#19)."""
+ def _hits(self,n,strand='+'):
+  return [Hit(str(i),'chr1',100+i,101+i,strand,99,100,source_start=i) for i in range(n)]
+ def test_reverse_synteny_plus_marker_stays_reverse(self):
+  syn=Interval('chr1',100,300,'-','synteny');mk=Interval('chr1',150,250,'.','markers')
+  res=combine_intervals(syn,mk,None);self.assertEqual(len(res),1);self.assertEqual(res[0].strand,'-')
+ def test_forward_synteny_plus_marker_stays_forward(self):
+  syn=Interval('chr1',100,300,'+','synteny');mk=Interval('chr1',150,250,'.','markers')
+  res=combine_intervals(syn,mk,None);self.assertEqual(res[0].strand,'+')
+ def test_marker_only_unresolved_orientation(self):
+  mk=Interval('chr1',150,250,'.','markers')
+  self.assertEqual(combine_intervals(None,mk,None)[0].strand,'.')
+  c,r,w=score_confidence('partial',None,mk,None,self._hits(5,'.'))
+  self.assertIn('orientation',' '.join(w).lower())
+ def test_opposite_synteny_and_liftover_conflict_not_high(self):
+  syn=Interval('chr1',100,300,'-','synteny');lift=Interval('chr1',120,280,'+','liftover')
+  c,r,w=score_confidence('reverse',syn,None,lift,self._hits(6))
+  self.assertEqual(c,'Manual check');self.assertIn('orientation',' '.join(w).lower())
+  self.assertEqual(len(combine_intervals(syn,None,lift)),2)
+ def test_agreeing_informative_evidence_combines(self):
+  syn=Interval('chr1',100,300,'+','synteny');lift=Interval('chr1',120,280,'+','liftover')
+  c,r,w=score_confidence('forward',syn,None,lift,self._hits(6));self.assertEqual(c,'High')
+  res=combine_intervals(syn,None,lift);self.assertEqual(len(res),1);self.assertEqual(res[0].strand,'+')
+ def test_non_overlapping_evidence_stays_separate(self):
+  syn=Interval('chr1',100,200,'+','synteny');mk=Interval('chr1',500,600,'.','markers')
+  self.assertEqual(len(combine_intervals(syn,mk,None)),2)
+ def test_orientation_audit_records_provenance(self):
+  syn=Interval('chr1',100,300,'-','synteny');mk=Interval('chr1',150,250,'.','markers')
+  aud=orientation_audit(syn,mk,None)
+  self.assertEqual(aud['strand'],'-');self.assertEqual(aud['orientation_evidence'],['synteny'])
+  self.assertEqual(aud['uninformative_orientation_evidence'],['markers']);self.assertFalse(aud['conflict'])
 if __name__=='__main__':unittest.main()
