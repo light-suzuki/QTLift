@@ -131,7 +131,7 @@ QTLift works fine without chromosome-scale sequences — it maps anchor genes to
 
 1. Extract genes overlapping the source-B interval from the GFF3.
 2. Select anchor genes by a minimum genomic spacing (no upper cap; a floor guarantees a usable count on short intervals) and BLAST their CDS onto reference A.
-3. Optionally map user-supplied **marker sequences** the same way, and optionally run **whole-genome liftover** with minimap2.
+3. Optionally map user-supplied **marker sequences** the same way, and optionally run **whole-genome liftover** with minimap2. Liftover projects interval endpoints by linear interpolation across the alignment (it does not consult the CIGAR), so its coordinates are **approximate** supporting evidence, not marker-grade breakpoints.
 4. Evaluate synteny (forward / reverse / partial / split / failed) from anchor order and orientation.
 5. Reconcile the evidence and assign confidence. **High** confidence requires at least two independent evidence classes agreeing — so **without markers or liftover, confidence is capped at Medium** by design.
 
@@ -263,7 +263,7 @@ minimap2（任意・リフトオーバー用）: **https://github.com/lh3/minima
 
 1. GFF3 からソース B 区間に重なる遺伝子を抽出。
 2. 最小間隔でアンカー遺伝子を選び(上限なし・短い区間には最低本数を保証)、その CDS を参照 A へ BLAST。
-3. 任意で**マーカー配列**も同様にマッピングし、任意で minimap2 による**全ゲノムリフトオーバー**を実行。
+3. 任意で**マーカー配列**も同様にマッピングし、任意で minimap2 による**全ゲノムリフトオーバー**を実行。リフトオーバーは区間端をアラインメント上の線形補間で投影します(CIGAR は参照しません)。したがって座標は**近似的**な補助証拠であり、塩基単位のブレークポイントではありません。
 4. アンカーの並び順・向きからシンテニー(順/逆/部分/分散/失敗)を評価。
 5. 根拠を統合し信頼度を判定。**High** には独立した 2 種類以上の根拠の一致が必要 — つまり**マーカーもリフトオーバーも無い場合、信頼度は設計上 Medium 止まり**です。
 

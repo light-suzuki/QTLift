@@ -22,6 +22,9 @@ def write_outputs(job_dir: str | Path, summary: dict, marker_hits: list[dict], a
     _tsv(out/"summary.tsv", [flat], list(flat))
     hit_fields = ["query_id","contig","start","end","strand","identity","coverage","hit_count","method","source_start","query_start","query_end","query_length"]
     _tsv(out/"marker_hits.tsv", marker_hits, hit_fields); _tsv(out/"anchor_genes.tsv", anchor_hits, hit_fields)
+    # Per-anchor provenance (which transcript supplied the CDS, and whether the anchor sequence
+    # came from that CDS or a whole-gene fallback) — auditable alongside the BLAST hit table.
+    _tsv(out/"anchors.tsv", summary.get("anchors", []), ["id","contig","start","end","strand","role","transcript_id","sequence_source"])
     (out/"warnings.txt").write_text("\n".join(summary["warnings"]) + "\n", encoding="utf-8")
     (out/"params.json").write_text(json.dumps(params, indent=2, ensure_ascii=False), encoding="utf-8")
     liftover = summary.get("evidence", {}).get("liftover")
@@ -33,7 +36,7 @@ def write_outputs(job_dir: str | Path, summary: dict, marker_hits: list[dict], a
     report = f'''<!doctype html><html lang="ja"><meta charset="utf-8"><title>QTLift {html.escape(summary.get('name') or summary['job_id'])}</title>
 <style>body{{font:14px system-ui;max-width:1100px;margin:32px auto;color:#14253d}}table{{border-collapse:collapse;width:100%}}th,td{{border:1px solid #ccd6e2;padding:6px;text-align:left}}.confidence{{font-size:24px;color:#087f79}}.warn{{background:#fff5db;padding:8px}}</style>
 <h1>{html.escape(summary.get('name') or 'QTLift解析レポート')}</h1><p><code>{html.escape(summary['job_id'])}</code></p><p class="confidence">{html.escape(summary['confidence'])}</p><p><b>ソース / Source:</b> {html.escape(summary['source_label'])}</p><p><b>最終ターゲット / Final target:</b> {html.escape(summary.get('final_label','Unavailable'))}</p>
-<h2>根拠 / Evidence</h2><pre>{html.escape(json.dumps(summary['evidence'],indent=2,ensure_ascii=False))}</pre><h2>信頼度の理由 / Confidence rationale</h2><ul>{''.join('<li>'+html.escape(x)+'</li>' for x in summary['reasons'])}</ul>
+<h2>根拠 / Evidence</h2><pre>{html.escape(json.dumps(summary['evidence'],indent=2,ensure_ascii=False))}</pre><h2>向きの根拠 / Orientation provenance</h2><pre>{html.escape(json.dumps(summary.get('orientation', {}),indent=2,ensure_ascii=False))}</pre><h2>信頼度の理由 / Confidence rationale</h2><ul>{''.join('<li>'+html.escape(x)+'</li>' for x in summary['reasons'])}</ul>
 <h2>警告 / Warnings</h2><div class="warn">{'<br>'.join(html.escape(x) for x in summary['warnings']) or 'なし / None'}</div><h2>パラメータ / Parameters</h2><pre>{html.escape(json.dumps(params,indent=2))}</pre></html>'''
     (out/"report.html").write_text(report, encoding="utf-8")
     return sorted(str(p.relative_to(out)).replace("\\", "/") for p in out.rglob("*") if p.is_file())
