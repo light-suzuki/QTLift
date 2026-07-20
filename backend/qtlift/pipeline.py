@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .analysis import combine_intervals, evaluate_synteny, exact_hits, marker_interval, orientation_audit, score_confidence, select_anchors
-from .genomes import detect_genomes, genes_in_interval, sequence_slice, validate_interval
+from .genomes import anchor_sequence, detect_genomes, genes_in_interval, sequence_slice, validate_interval
 from .markers import parse_marker
 from .models import Params
 from .reporting import write_outputs
@@ -78,11 +78,13 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
     if len(anchors) > 500:
         warnings.append(f"Selected {len(anchors)} genes to map; runtime may be long.")
     update(15, f"Selected {len(anchors)} anchor genes")
+    fallback = [gene.id for gene in anchors if gene.sequence_source != "cds"]
+    if fallback:
+        warnings.append(f"No CDS model for {len(fallback)} anchor gene(s) ({', '.join(fallback[:5])}); whole-gene sequence was used.")
     anchor_hits = []
     anchor_queries = []
     for gene in anchors:
-        ranges = gene.cds or [(gene.start, gene.end)]
-        seq = "".join(sequence_slice(source["fasta"], gene.contig, a, b) for a,b in ranges)
+        seq = anchor_sequence(source["fasta"], gene)
         anchor_queries.append((gene.id, seq, gene.start))
     batched = None
     if effective_backend in ("windows", "wsl"):

@@ -9,8 +9,19 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from Bio import SeqIO
+from Bio.Seq import Seq
 
 from .models import Gene
+
+# Feature types that are never a coding transcript and never carry CDS children; skipping
+# them keeps the per-contig feature graph small on large annotations.
+LEAF_FEATURE_TYPES = frozenset({"exon", "five_prime_utr", "three_prime_utr", "utr", "intron"})
+# Attribute conventions used across GFF3 dialects to flag the representative transcript.
+CANONICAL_TAGS = frozenset({"ensembl_canonical", "canonical", "mane_select", "mane_plus_clinical"})
+CANONICAL_KEYS = ("canonical", "is_canonical", "representative", "canonical_transcript")
+# Common transcript-id suffixes appended to a gene id ("g1" -> "g1.t1"/"g1.1"/"g1-T1"); used only
+# to recover a gene when a CDS names a transcript that is never declared as its own feature row.
+TRANSCRIPT_SUFFIX = re.compile(r"(?:[.]t\d+|-T\d+|[.]\d+|[.-]mRNA[._\d]*)$", re.IGNORECASE)
 
 FASTA_SUFFIXES = (".fa", ".fasta", ".fna")
 GFF_SUFFIXES = (".gff3", ".gff")
@@ -96,34 +107,104 @@ def parse_attrs(text: str) -> dict[str, str]:
     return {k: unquote(v.strip('"')) for part in text.strip().split(";") if part and "=" in part for k, v in [part.split("=", 1)]}
 
 
-def genes_in_interval(path: str | Path, contig: str, start: int, end: int, include_outside: bool = False) -> list[Gene]:
-    validate_interval(start, end)
-    genes: dict[str, Gene] = {}
-    cds_rows: list[tuple[str, int, int]] = []
+def _parent_ids(col9: str) -> list[str]:
+    # Per the GFF3 spec multiple parents are comma-separated and literal commas inside a
+    # value are percent-encoded, so split on the raw commas before unquoting each id.
+    for part in col9.split(";"):
+        if part.strip().startswith("Parent="):
+            raw = part.split("=", 1)[1].strip().strip('"')
+            return [unquote(v) for v in raw.split(",") if v]
+    return []
+
+
+def _load_contig_features(path: str | Path, contig: str):
+    """Read one contig into a feature graph: genes, CDS grouped by their parent id, and the
+    parents/attributes of every id-bearing intermediate feature (candidate transcripts)."""
+    genes: dict[str, tuple[int, int, str]] = {}
+    cds_by_parent: dict[str, list[tuple[int, int]]] = {}
+    tx_parents: dict[str, list[str]] = {}
+    tx_attrs: dict[str, dict[str, str]] = {}
     with _open_text(Path(path)) as handle:
         for line in handle:
             if line.startswith("#") or not line.strip():
                 continue
-            cols = line.rstrip().split("\t")
+            cols = line.rstrip("\n").split("\t")
             if len(cols) != 9 or cols[0] != contig:
                 continue
-            feature, fstart, fend, strand, attrs = cols[2], int(cols[3]), int(cols[4]), cols[6], parse_attrs(cols[8])
-            overlaps = fend >= start and fstart <= end
-            if feature == "gene" and overlaps:
-                gid = attrs.get("ID") or attrs.get("Name") or f"gene_{fstart}_{fend}"
-                genes[gid] = Gene(gid, contig, fstart, fend, strand)
-            elif feature == "CDS" and overlaps:
-                parent = (attrs.get("Parent") or "").split(",")[0]
-                cds_rows.append((parent, attrs.get("Name", ""), fstart, fend))
-    for parent, name, fstart, fend in cds_rows:
-        # CDS Parent is usually the transcript id (gene id + a transcript suffix such as
-        # ".1", ".t1", "-T1"); resolve it back to the gene by trying the raw parent, the
-        # parent with a trailing transcript suffix stripped, then the CDS Name attribute.
-        stripped = re.sub(r"(?:[.]t\d+|-T\d+|[.]\d+|[.-]mRNA[._\d]*)$", "", parent, flags=re.IGNORECASE)
-        key = next((c for c in (parent, stripped, name) if c and c in genes), None)
-        if key:
-            genes[key].cds.append((fstart, fend))
-    return sorted(genes.values(), key=lambda g: (g.start, g.end))
+            ftype, fstart, fend, strand = cols[2], int(cols[3]), int(cols[4]), cols[6]
+            attrs = parse_attrs(cols[8])
+            fid = attrs.get("ID")
+            if ftype == "gene":
+                gid = fid or attrs.get("Name") or f"gene_{fstart}_{fend}"
+                genes[gid] = (fstart, fend, strand)
+            elif ftype == "CDS":
+                for parent in _parent_ids(cols[8]) or ([fid] if fid else []):
+                    cds_by_parent.setdefault(parent, []).append((fstart, fend))
+            elif fid and ftype.lower() not in LEAF_FEATURE_TYPES:
+                tx_parents[fid] = _parent_ids(cols[8])
+                tx_attrs[fid] = attrs
+    return genes, cds_by_parent, tx_parents, tx_attrs
+
+
+def _is_canonical(attrs: dict[str, str]) -> bool:
+    tags = attrs.get("tag", "")
+    if any(t.strip().lower() in CANONICAL_TAGS for t in tags.split(",")):
+        return True
+    return any(attrs.get(k, "").strip().lower() in {"1", "true", "yes"} for k in CANONICAL_KEYS)
+
+
+def _strip_transcript_suffix(parent: str) -> str:
+    return TRANSCRIPT_SUFFIX.sub("", parent)
+
+
+def _representative_cds(gid: str, cds_by_parent, tx_parents, tx_attrs) -> tuple[str | None, list[tuple[int, int]]]:
+    """Pick one transcript for a gene through real gene->transcript->CDS relationships.
+    Preference: an explicitly canonical/representative transcript, else the longest valid
+    CDS, with transcript-id order as a deterministic tie-break. Never mixes isoforms."""
+    candidates: list[tuple[str, list[tuple[int, int]], dict[str, str]]] = []
+    for tid, parents in tx_parents.items():
+        if gid in parents and tid in cds_by_parent:
+            candidates.append((tid, sorted(cds_by_parent[tid]), tx_attrs.get(tid, {})))
+    if gid in cds_by_parent:  # CDS parented directly to the gene (no transcript layer)
+        candidates.append((gid, sorted(cds_by_parent[gid]), {}))
+    if not candidates:
+        # Compact dialects reference a transcript id in the CDS Parent (e.g. Parent=g1.t1) but
+        # never declare that transcript as its own feature row; recover the gene by stripping a
+        # common transcript suffix, matching the pre-graph resolver. Each undeclared transcript
+        # stays a separate candidate so isoforms are still not concatenated.
+        for parent, parent_cds in cds_by_parent.items():
+            if parent not in tx_parents and _strip_transcript_suffix(parent) == gid:
+                candidates.append((parent, sorted(parent_cds), {}))
+    if not candidates:
+        return None, []
+    canonical = [c for c in candidates if _is_canonical(c[2])]
+    pool = canonical or candidates
+    length = lambda cds: sum(e - s + 1 for s, e in cds)
+    tid, cds, _ = min(pool, key=lambda c: (-length(c[1]), c[0]))
+    return tid, cds
+
+
+def genes_in_interval(path: str | Path, contig: str, start: int, end: int, include_outside: bool = False) -> list[Gene]:
+    """Select genes for a source interval and resolve one complete CDS model per gene.
+
+    ``include_outside`` follows the anchor contract: when False only genes fully contained in
+    the interval are returned; when True genes overlapping either edge are also returned. In
+    both cases the complete CDS of the chosen transcript is loaded, so edge genes keep every
+    CDS segment instead of being truncated to the part that falls inside the interval.
+    """
+    validate_interval(start, end)
+    genes_meta, cds_by_parent, tx_parents, tx_attrs = _load_contig_features(path, contig)
+    result: list[Gene] = []
+    for gid, (gstart, gend, strand) in genes_meta.items():
+        keep = (gend >= start and gstart <= end) if include_outside else (gstart >= start and gend <= end)
+        if not keep:
+            continue
+        gene = Gene(gid, contig, gstart, gend, strand)
+        tid, cds = _representative_cds(gid, cds_by_parent, tx_parents, tx_attrs)
+        if cds:
+            gene.cds, gene.transcript_id, gene.sequence_source = cds, tid, "cds"
+        result.append(gene)
+    return sorted(result, key=lambda g: (g.start, g.end))
 
 
 def validate_interval(start: int, end: int, length: int | None = None, peak: int | None = None) -> None:
@@ -172,3 +253,14 @@ def sequence_slice(path: str | Path, contig: str, start: int, end: int) -> str:
         finally:
             index.close()
     raise KeyError(contig)
+
+
+def anchor_sequence(fasta_path: str | Path, gene: Gene) -> str:
+    """Assemble a gene's anchor sequence from its complete CDS model (the whole-gene span is
+    the documented fallback), reverse-complemented for minus-strand genes so a multi-exon CDS
+    is read in biological 5'->3' order rather than plain genomic order."""
+    ranges = sorted(gene.cds) if gene.cds else [(gene.start, gene.end)]
+    seq = "".join(sequence_slice(fasta_path, gene.contig, a, b) for a, b in ranges)
+    if gene.strand == "-":
+        seq = str(Seq(seq).reverse_complement())
+    return seq
