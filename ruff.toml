@@ -1,0 +1,7 @@
+# Conservative lint gate: pyflakes (F, e.g. unused/undefined names) plus the E9
+# syntax/runtime-error checks. Intentionally narrow to avoid churn on the codebase's
+# dense one-statement-per-line style; the rule set can be widened later.
+target-version = "py311"
+
+[lint]
+select = ["F", "E9"]

@@ -22,3 +22,46 @@ jobs:
         run: PYTHONPATH=backend python -c "import qtlift.api, qtlift.pipeline; print('qtlift import ok')"
       - name: Unit tests
         run: python -m unittest discover -s tests -v
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install ruff
+        run: python -m pip install ruff
+      - name: Ruff
+        run: ruff check backend run.py scripts tests
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install BLAST+ and minimap2
+        run: sudo apt-get update && sudo apt-get install -y ncbi-blast+ minimap2
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Integration tests
+        run: python -m unittest discover -s tests -p "test_integration.py" -v
