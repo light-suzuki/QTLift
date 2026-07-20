@@ -24,5 +24,14 @@
   "coordRequired":"Enter both start and end coordinates.","coordOrder":"End must be greater than or equal to start.","peakRange":"Peak must fall inside the interval.",
   "auto":"Auto","exactFallback":"Exact fallback","windowsBlast":"Windows BLAST+","wslBlast":"WSL BLAST+ (recommended)","notFound":"Not found on PATH",
   "providerAuto":"Automatically selects an available local BLAST runtime.","providerWindows":"Uses Windows blastn against target A.","providerWsl":"Uses blastn inside WSL against target A.","providerExact":"For artificial data and exact-match validation.",
-  "providerNotice":"Available providers are local Windows BLAST+, WSL BLAST+, and exact fallback. NCBI remote BLAST is not implemented."
+  "providerNotice":"Available providers are local Windows BLAST+, WSL BLAST+, and exact fallback. NCBI remote BLAST is not implemented.",
+  "evidenceSummaryCaption":"Each lane is an independent line of evidence (liftover / markers / synteny). The x-axis is the target-A coordinate, the shaded band is the final inferred interval, and the number on the right is each line's support count.",
+  "anchorPlotCaption":"Each dot is a uniquely-mapped anchor gene. A lower-left to upper-right trend means forward orientation; a downward trend indicates an inversion.",
+  "intervalPlotCaption":"Top = source-B interval, bottom = target-A interval. Lines link each anchor's correspondence; colour shows orientation (green = forward, orange = reverse).",
+  "confidenceTip":"Confidence reflects how well the independent lines of evidence (synteny, markers, liftover) agree. See the How-it-works tab for details.",
+  "uniqueAnchorsTip":"Uniquely-mapped anchors / total anchors.",
+  "oriCountsTip":"Number of anchors matching in the forward (→) and reverse (←) direction.",
+  "showingFirst":"Showing the first 12 of {total} rows — the full data is in the download TSVs below.",
+  "intervalLength":"Interval length",
+  "intervalLengthTip":"Source-B interval length → final-A interval length. A large increase is a sign to check the mapping."
 }
