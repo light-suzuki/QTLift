@@ -113,6 +113,13 @@ class Gff3ParserTests(unittest.TestCase):
    g=self._gff(d,[("Chr1",".","gene",100,200,".","+",".","ID=g1"),("Chr1",".","CDS",100,200,".","+","0","Parent=g1")])
    genes=genes_in_interval(g,"Chr1",1,300,include_outside=True)
    self.assertEqual(genes[0].cds,[(100,200)]);self.assertEqual(genes[0].sequence_source,"cds")
+ def test_implicit_transcript_suffix_parent(self):
+  # CDS Parent names a transcript id (g1.t1/g1.1/g1-T1) with no explicit transcript row (#23 review P1).
+  with tempfile.TemporaryDirectory() as d:
+   for suffix in (".t1",".1","-T1"):
+    g=self._gff(d,[("Chr1",".","gene",100,300,".","+",".","ID=g1"),("Chr1",".","CDS",100,150,".","+","0",f"Parent=g1{suffix}"),("Chr1",".","CDS",200,300,".","+","0",f"Parent=g1{suffix}")])
+    genes=genes_in_interval(g,"Chr1",1,400,include_outside=True)
+    self.assertEqual(genes[0].cds,[(100,150),(200,300)],suffix);self.assertEqual(genes[0].sequence_source,"cds",suffix)
  def test_unrelated_transcript_ids_resolve(self):
   with tempfile.TemporaryDirectory() as d:
    g=self._gff(d,[("Chr1",".","gene",100,200,".","+",".","ID=gene-LOC123"),("Chr1",".","mRNA",100,200,".","+",".","ID=rna-XM_001;Parent=gene-LOC123"),("Chr1",".","CDS",100,130,".","+","0","Parent=rna-XM_001"),("Chr1",".","CDS",160,200,".","+","0","Parent=rna-XM_001")])

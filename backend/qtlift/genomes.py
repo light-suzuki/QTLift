@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import unquote
@@ -18,6 +19,9 @@ LEAF_FEATURE_TYPES = frozenset({"exon", "five_prime_utr", "three_prime_utr", "ut
 # Attribute conventions used across GFF3 dialects to flag the representative transcript.
 CANONICAL_TAGS = frozenset({"ensembl_canonical", "canonical", "mane_select", "mane_plus_clinical"})
 CANONICAL_KEYS = ("canonical", "is_canonical", "representative", "canonical_transcript")
+# Common transcript-id suffixes appended to a gene id ("g1" -> "g1.t1"/"g1.1"/"g1-T1"); used only
+# to recover a gene when a CDS names a transcript that is never declared as its own feature row.
+TRANSCRIPT_SUFFIX = re.compile(r"(?:[.]t\d+|-T\d+|[.]\d+|[.-]mRNA[._\d]*)$", re.IGNORECASE)
 
 FASTA_SUFFIXES = (".fa", ".fasta", ".fna")
 GFF_SUFFIXES = (".gff3", ".gff")
@@ -149,6 +153,10 @@ def _is_canonical(attrs: dict[str, str]) -> bool:
     return any(attrs.get(k, "").strip().lower() in {"1", "true", "yes"} for k in CANONICAL_KEYS)
 
 
+def _strip_transcript_suffix(parent: str) -> str:
+    return TRANSCRIPT_SUFFIX.sub("", parent)
+
+
 def _representative_cds(gid: str, cds_by_parent, tx_parents, tx_attrs) -> tuple[str | None, list[tuple[int, int]]]:
     """Pick one transcript for a gene through real gene->transcript->CDS relationships.
     Preference: an explicitly canonical/representative transcript, else the longest valid
@@ -159,6 +167,14 @@ def _representative_cds(gid: str, cds_by_parent, tx_parents, tx_attrs) -> tuple[
             candidates.append((tid, sorted(cds_by_parent[tid]), tx_attrs.get(tid, {})))
     if gid in cds_by_parent:  # CDS parented directly to the gene (no transcript layer)
         candidates.append((gid, sorted(cds_by_parent[gid]), {}))
+    if not candidates:
+        # Compact dialects reference a transcript id in the CDS Parent (e.g. Parent=g1.t1) but
+        # never declare that transcript as its own feature row; recover the gene by stripping a
+        # common transcript suffix, matching the pre-graph resolver. Each undeclared transcript
+        # stays a separate candidate so isoforms are still not concatenated.
+        for parent, parent_cds in cds_by_parent.items():
+            if parent not in tx_parents and _strip_transcript_suffix(parent) == gid:
+                candidates.append((parent, sorted(parent_cds), {}))
     if not candidates:
         return None, []
     canonical = [c for c in candidates if _is_canonical(c[2])]
