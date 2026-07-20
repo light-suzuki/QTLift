@@ -15,6 +15,10 @@ class Gene:
     strand: str = "+"
     cds: list[tuple[int, int]] = field(default_factory=list)
     role: str = "internal"
+    # Auditability for anchor construction: the transcript that supplied the CDS model and
+    # whether the anchor sequence comes from that CDS ("cds") or a whole-gene fallback ("gene").
+    transcript_id: str | None = None
+    sequence_source: str = "gene"
 
 
 @dataclass(slots=True)

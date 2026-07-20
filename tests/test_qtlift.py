@@ -2,7 +2,7 @@ import gzip,json,sys,tempfile,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/"backend"))
 from qtlift.analysis import combine_intervals,evaluate_synteny,score_confidence,select_anchors
-from qtlift.genomes import detect_genomes,genes_in_interval,validate_interval
+from qtlift.genomes import anchor_sequence,detect_genomes,genes_in_interval,validate_interval
 from qtlift.markers import parse_marker
 from qtlift.models import Gene,Hit,Interval,Params
 from qtlift.pipeline import run_job
@@ -67,4 +67,59 @@ class QTLiftTests(unittest.TestCase):
    p={"job_id":"test","genome_root":str(self.root),"target_ref":"RefA","source_ref":"RefB","contig":"Chr1","start":100,"end":850,"peak":450,"name":"test","preset":"Standard","markers":{"left":motif(1),"peak":motif(4),"right":motif(7)}}
    r=run_job(p,d);self.assertEqual(r['synteny_state'],'forward');self.assertIn(r['confidence'],('High','Medium'));self.assertTrue((Path(d)/'test'/'report.html').exists());self.assertIn('Liftover'," ".join(r['warnings']))
    self.assertEqual(r['effective_backend'],'wsl')
+
+class Gff3ParserTests(unittest.TestCase):
+ """Species-agnostic GFF3 gene->transcript->CDS resolution and the include_outside contract (#18, #14)."""
+ def _gff(self,d,rows):
+  p=Path(d)/'ann.gff3';p.write_text("##gff-version 3\n"+"\n".join("\t".join(str(c) for c in r) for r in rows)+"\n",encoding="utf-8");return p
+ def test_edge_gene_include_outside_contract(self):
+  with tempfile.TemporaryDirectory() as d:
+   g=self._gff(d,[("Chr1",".","gene",50,250,".","+",".","ID=g1"),("Chr1",".","CDS",50,70,".","+","0","Parent=g1"),("Chr1",".","CDS",100,120,".","+","0","Parent=g1"),("Chr1",".","CDS",200,220,".","+","0","Parent=g1")])
+   self.assertEqual(genes_in_interval(g,"Chr1",90,180,include_outside=False),[])
+   inc=genes_in_interval(g,"Chr1",90,180,include_outside=True)
+   self.assertEqual([x.id for x in inc],["g1"]);self.assertEqual(inc[0].cds,[(50,70),(100,120),(200,220)])
+ def test_contained_gene_identical_in_both_modes(self):
+  with tempfile.TemporaryDirectory() as d:
+   g=self._gff(d,[("Chr1",".","gene",100,200,".","+",".","ID=g1"),("Chr1",".","CDS",100,130,".","+","0","Parent=g1"),("Chr1",".","CDS",160,200,".","+","0","Parent=g1")])
+   a=genes_in_interval(g,"Chr1",50,300,include_outside=False);b=genes_in_interval(g,"Chr1",50,300,include_outside=True)
+   self.assertEqual([x.id for x in a],["g1"]);self.assertEqual([x.id for x in b],["g1"]);self.assertEqual(a[0].cds,b[0].cds);self.assertEqual(a[0].cds,[(100,130),(160,200)])
+ def test_direct_gene_to_cds(self):
+  with tempfile.TemporaryDirectory() as d:
+   g=self._gff(d,[("Chr1",".","gene",100,200,".","+",".","ID=g1"),("Chr1",".","CDS",100,200,".","+","0","Parent=g1")])
+   genes=genes_in_interval(g,"Chr1",1,300,include_outside=True)
+   self.assertEqual(genes[0].cds,[(100,200)]);self.assertEqual(genes[0].sequence_source,"cds")
+ def test_unrelated_transcript_ids_resolve(self):
+  with tempfile.TemporaryDirectory() as d:
+   g=self._gff(d,[("Chr1",".","gene",100,200,".","+",".","ID=gene-LOC123"),("Chr1",".","mRNA",100,200,".","+",".","ID=rna-XM_001;Parent=gene-LOC123"),("Chr1",".","CDS",100,130,".","+","0","Parent=rna-XM_001"),("Chr1",".","CDS",160,200,".","+","0","Parent=rna-XM_001")])
+   genes=genes_in_interval(g,"Chr1",1,300,include_outside=True)
+   self.assertEqual([x.id for x in genes],["gene-LOC123"]);self.assertEqual(genes[0].cds,[(100,130),(160,200)]);self.assertEqual(genes[0].transcript_id,"rna-XM_001")
+ def test_two_isoforms_pick_longest_no_concatenation(self):
+  with tempfile.TemporaryDirectory() as d:
+   g=self._gff(d,[("Chr1",".","gene",100,300,".","+",".","ID=g1"),("Chr1",".","mRNA",100,300,".","+",".","ID=g1.t1;Parent=g1"),("Chr1",".","CDS",100,150,".","+","0","Parent=g1.t1"),("Chr1",".","mRNA",100,300,".","+",".","ID=g1.t2;Parent=g1"),("Chr1",".","CDS",100,150,".","+","0","Parent=g1.t2"),("Chr1",".","CDS",200,300,".","+","0","Parent=g1.t2")])
+   genes=genes_in_interval(g,"Chr1",1,400,include_outside=True)
+   self.assertEqual(genes[0].transcript_id,"g1.t2");self.assertEqual(genes[0].cds,[(100,150),(200,300)])
+ def test_canonical_tag_overrides_length(self):
+  with tempfile.TemporaryDirectory() as d:
+   g=self._gff(d,[("Chr1",".","gene",100,300,".","+",".","ID=g1"),("Chr1",".","mRNA",100,300,".","+",".","ID=g1.long;Parent=g1"),("Chr1",".","CDS",100,300,".","+","0","Parent=g1.long"),("Chr1",".","mRNA",100,180,".","+",".","ID=g1.canon;Parent=g1;tag=Ensembl_canonical"),("Chr1",".","CDS",100,180,".","+","0","Parent=g1.canon")])
+   genes=genes_in_interval(g,"Chr1",1,400,include_outside=True)
+   self.assertEqual(genes[0].transcript_id,"g1.canon");self.assertEqual(genes[0].cds,[(100,180)])
+ def test_multiple_parents_and_percent_encoding(self):
+  with tempfile.TemporaryDirectory() as d:
+   g=self._gff(d,[("Chr1",".","gene",100,200,".","+",".","ID=gene%3A1"),("Chr1",".","mRNA",100,200,".","+",".","ID=t1;Parent=gene%3A1"),("Chr1",".","mRNA",100,200,".","+",".","ID=t2;Parent=gene%3A1"),("Chr1",".","CDS",100,200,".","+","0","Parent=t1,t2")])
+   genes=genes_in_interval(g,"Chr1",1,300,include_outside=True)
+   self.assertEqual([x.id for x in genes],["gene:1"]);self.assertEqual(genes[0].transcript_id,"t1");self.assertEqual(genes[0].cds,[(100,200)])
+ def test_no_cds_falls_back_to_whole_gene(self):
+  with tempfile.TemporaryDirectory() as d:
+   g=self._gff(d,[("Chr1",".","gene",100,200,".","+",".","ID=g1"),("Chr1",".","mRNA",100,200,".","+",".","ID=g1.t1;Parent=g1"),("Chr1",".","exon",100,200,".","+",".","ID=g1.e1;Parent=g1.t1")])
+   genes=genes_in_interval(g,"Chr1",1,300,include_outside=True)
+   self.assertEqual(genes[0].sequence_source,"gene");self.assertIsNone(genes[0].transcript_id);self.assertEqual(genes[0].cds,[])
+ def test_minus_strand_anchor_is_biological_order(self):
+  from Bio.Seq import Seq
+  with tempfile.TemporaryDirectory() as d:
+   seq="A"*10+"CCCCCGGGGG"+"T"*10+"ACGTACGTAC"+"A"*10
+   fa=Path(d)/"g.fa";fa.write_text(">Chr1\n"+seq+"\n",encoding="ascii")
+   gene=Gene("g1","Chr1",11,40,"-",cds=[(11,20),(31,40)])
+   got=anchor_sequence(fa,gene)
+   exon1,exon2=seq[10:20],seq[30:40]
+   self.assertEqual(got,str(Seq(exon1+exon2).reverse_complement()));self.assertTrue(got.startswith(str(Seq(exon2).reverse_complement())))
 if __name__=='__main__':unittest.main()
