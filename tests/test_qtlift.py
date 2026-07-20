@@ -1,4 +1,4 @@
-import gzip,json,sys,tempfile,unittest
+import gzip,json,shutil,sys,tempfile,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/"backend"))
 from qtlift.analysis import combine_intervals,evaluate_synteny,score_confidence,select_anchors
@@ -61,6 +61,7 @@ class QTLiftTests(unittest.TestCase):
   confidence,reasons,warnings=score_confidence('forward',syn,marker,None,hs)
   self.assertEqual(confidence,'Manual check');self.assertEqual(len(combine_intervals(syn,marker,None)),2)
   self.assertIn('inconsistent',' '.join(warnings))
+ @unittest.skipUnless(shutil.which("wsl.exe"), "asserts the WSL BLAST backend; unavailable on non-Windows CI")
  def test_sample_pipeline(self):
   with tempfile.TemporaryDirectory() as d:
    from scripts.create_sample_data import motif
