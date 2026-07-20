@@ -35,7 +35,7 @@ backend/qtlift/        FastAPI + analysis pipeline (Python 3.13)
 frontend/src/          React + Vite (TypeScript), single-file main.tsx
   main.tsx             All pages: Library, Setup, Monitor, Results, How-it-works, Settings
   locales/{en,ja}.json Bilingual UI strings
-tests/test_qtlift.py   unittest suite (fast, no network, uses the artificial sample)
+tests/test_*.py        unittest suite split by backend module (fast, no network, artificial sample)
 scripts/               create_sample_data.py, run_sample.py, chunk_fasta.py, build_alignment_cache.py, ...
 sample_data/genomes/   Artificial RefA/RefB (safe to redistribute)
 ```
@@ -73,7 +73,7 @@ powershell -ExecutionPolicy Bypass -File .\start-qtlift.ps1   # http://127.0.0.1
 ```
 
 **Definition of done for any change:**
-- `unittest` passes (13+ tests) and you added a test for new backend behavior.
+- `unittest` passes (full suite) and you added a test for new backend behavior.
 - `npm run build` passes (TypeScript is part of the build; no type errors).
 - The artificial sample still completes end-to-end.
 - New UI strings exist in **both** `en.json` and `ja.json`.
