@@ -19,3 +19,31 @@
 .toggle{display:inline-flex;align-items:center;gap:9px;margin-top:16px;font-size:13px;color:#25405e;cursor:pointer}.toggle input{width:auto;accent-color:#078b83}.toggle.disabled{color:#93a3b2;cursor:not-allowed}
 .contigPicker{display:grid;gap:5px}.contigPicker small{color:#74889a;font-size:10px}.contigPicker .contigSearch{padding:7px 9px;font-size:12px;background:#f7fafb}.progressCell{display:grid;gap:3px;min-width:130px}.progressCell progress,.jobPending progress{width:100%}.progressCell small{max-width:180px}.jobPending{max-width:640px;margin:60px auto;display:grid;gap:16px;border:1px solid #d7e0e8;padding:28px}.resHead small{color:#8093a5;margin-left:6px}
 @media(max-width:800px){.app{grid-template-columns:60px 1fr}.brand{font-size:0}.brand span{font-size:18px}nav button{font-size:0}nav button svg{margin:auto}.asideFoot{display:none}.content{padding:20px 15px}.formGrid,.cardGrid,.markerRows,.plots,.split,.evidence{grid-template-columns:1fr}.resultHero{align-items:flex-start;gap:20px;flex-direction:column}.resultHero>div:last-child{text-align:left}.tableWrap{overflow:auto}}
+
+/* --- Readability layer: additive only. Enlarges the smallest text, raises the contrast of
+   muted greys, calms line spacing, and styles the new "how to read this" captions. No layout
+   is restructured and no information is hidden or removed. --- */
+body{line-height:1.5}
+h2{font-size:16px}
+.cardTitle{font-size:15px}
+.path label,.field>span{font-size:12px;color:#4c6076}
+th{font-size:11px;color:#4f647a}
+table{font-size:13px}
+td small{font-size:11px;color:#5f7183}
+.evidence span{font-size:11px;color:#5c7085}
+.resultHero small,.heroCol small{font-size:11px}
+.metaRow,.resHead,.candList,.paramTable>div,.notice{font-size:13px}
+.titleRow p,.resultHero p,.heroConf p{color:#5a6f83;font-size:13.5px}
+.cardHint{font-size:13px;color:#5f7488}
+.cardHint.subtle{color:#74879a}
+header small{color:#5c6f82}
+.asideFoot{color:#a9bccf;font-size:11.5px}
+.status,.contigPicker small{font-size:12px}
+.dotLegend{font-size:12px;color:#4f647a}
+.warnings p,.downloads a{font-size:12.5px}
+.toolList>div{font-size:13px}
+.plotCaption{margin:4px 2px 2px;font-size:12px;line-height:1.55;color:#5f7488}
+.evCard .plotCaption{margin:8px 2px 2px}
+.evTick{fill:#5f7386;font-size:12.5px}
+.evLabel{fill:#33495c}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible{outline:2px solid #078b83;outline-offset:1px}

@@ -505,6 +505,15 @@ function fmtBp(n: number) {
   if (n >= 1e3) return Math.round(n / 1e3) + " kb";
   return n + " bp";
 }
+// Axis ticks must stay distinguishable even for a narrow interval sitting at a large
+// coordinate (e.g. a 170 kb window near 355 Mb, where every tick would otherwise round to
+// "355 Mb"): pick the unit and decimals from the visible span, not the absolute value.
+function fmtTick(v: number, span: number) {
+  if (span >= 2e6) return (v / 1e6).toFixed(1) + " Mb";
+  if (span >= 2e4) return (v / 1e6).toFixed(2) + " Mb";
+  if (span >= 2e3) return (v / 1e6).toFixed(3) + " Mb";
+  return Math.round(v).toLocaleString() + " bp";
+}
 function fmtDur(s: number | undefined) {
   if (s == null) return "—";
   const m = Math.floor(s / 60), sec = Math.round(s % 60);
@@ -577,6 +586,7 @@ function Confidence({ value, t }: any) {
   return (
     <span
       className={"confidence " + String(value).toLowerCase().replace(" ", "-")}
+      title={t.confidenceTip}
     >
       {label}
     </span>
@@ -649,7 +659,7 @@ function Results({ job, t }: any) {
       )}
       <div className="metaRow">
         <span>{t.orientation}: <b>{t[syntenyKey] || SYNTENY_LABEL[job.synteny_state] || job.synteny_state}</b></span>
-        <span>{t.uniqueAnchors}: <b>{uniqA.length} / {anchors.length}</b> <span className="ori">{fwd}→ · {rev}←</span></span>
+        <span title={t.uniqueAnchorsTip}>{t.uniqueAnchors}: <b>{uniqA.length} / {anchors.length}</b> <span className="ori" title={t.oriCountsTip}>{fwd}→ · {rev}←</span></span>
         {uniqM.length > 0 && <span>{t.markerEvidence}: <b>{uniqM.length}</b></span>}
         {job.target_contig && <span>{t.targetContig}: <b>{job.target_contig}</b></span>}
       </div>
@@ -724,7 +734,7 @@ function EvidenceTrack({ job, anchors, markers, t }: any) {
         {final && <rect className="evBand" x={ax(final.start)} y={34} width={Math.max(2, ax(final.end) - ax(final.start))} height={140} />}
         <line className="evAxis" x1={X0} y1={44} x2={X1} y2={44} />
         {ticks.map((v) => (
-          <g><line className="evAxis" x1={ax(v)} y1={41} x2={ax(v)} y2={47} /><text className="evTick" x={ax(v)} y={30}>{fmtBp(Math.round(v))}</text></g>
+          <g><line className="evAxis" x1={ax(v)} y1={41} x2={ax(v)} y2={47} /><text className="evTick" x={ax(v)} y={30}>{fmtTick(v, hi - lo)}</text></g>
         ))}
         <text className="evLabel" x={14} y={80}>{t.liftover}</text>
         {lift ? <rect className="evLift" x={ax(lift.start)} y={70} width={Math.max(2, ax(lift.end) - ax(lift.start))} height={12} /> : <text className="evNA" x={X0} y={80}>{t.notRun}</text>}
@@ -735,6 +745,7 @@ function EvidenceTrack({ job, anchors, markers, t }: any) {
         {anchors.map((h: any) => <path className={h.strand === "-" ? "evArrowRev" : "evArrowFwd"} d={arrowPath(ax(h.start), 156, h.strand !== "-")} />)}
         <text className="evSupport" x={X1 + 12} y={158}>{anchors.length}</text>
       </svg>
+      <p className="plotCaption">{t.evidenceSummaryCaption}</p>
     </div>
   );
 }
@@ -756,6 +767,7 @@ function DotPlot({ anchors, t }: any) {
         <text className="axisTxt" x="215" y="174">{t.sourceCoordinate}</text>
         <text className="axisTxt" x="10" y="82" transform="rotate(-90 10 82)">{t.targetCoordinate}</text>
       </svg>
+      <p className="plotCaption">{t.anchorPlotCaption}</p>
     </div>
   );
 }
@@ -781,6 +793,7 @@ function TwoTrack({ job, anchors, t }: any) {
         <rect className="trkFill" x={X0} y={104} width={X1 - X0} height={12} />
         <text className="trkLabel" x={X0} y={134}>{t.finalA} · {fin.contig}</text>
       </svg>
+      <p className="plotCaption">{t.intervalPlotCaption}</p>
     </div>
   );
 }
@@ -795,7 +808,7 @@ function HitTable({ rows, t, kind }: any) {
             <tr>
               <td>{h.query_id}</td>
               <td className="mono">{h.source_start ? h.source_start.toLocaleString() : "—"} → {h.start.toLocaleString()}</td>
-              <td><span className={h.strand === "-" ? "strand rev" : "strand fwd"}>{h.strand === "-" ? "←" : "→"}</span></td>
+              <td><span className={h.strand === "-" ? "strand rev" : "strand fwd"} title={h.strand === "-" ? t.reverse : t.forward}>{h.strand === "-" ? "←" : "→"}</span></td>
               <td>{h.identity}% / {h.coverage}%</td>
               <td className={h.hit_count > 1 ? "multi" : ""}>{h.hit_count}</td>
             </tr>

@@ -30,5 +30,11 @@
   "high":"高","medium":"中","low":"低","manualCheck":"要手動確認","auto":"自動","exactFallback":"完全一致フォールバック",
   "windowsBlast":"Windows版 BLAST+","wslBlast":"WSL版 BLAST+（推奨）","notFound":"PATH上に見つかりません",
   "providerAuto":"利用可能なローカルBLASTを自動選択します。","providerWindows":"Windows上のblastnでターゲットAを検索します。","providerWsl":"WSL内のblastnでターゲットAを検索します。","providerExact":"人工データや完全一致検証用です。",
-  "providerNotice":"利用できるプロバイダーはローカルのWindows版BLAST+、WSL版BLAST+、完全一致フォールバックです。NCBIリモートBLASTは実装していません。"
+  "providerNotice":"利用できるプロバイダーはローカルのWindows版BLAST+、WSL版BLAST+、完全一致フォールバックです。NCBIリモートBLASTは実装していません。",
+  "evidenceSummaryCaption":"各レーン＝独立した根拠（リフトオーバー／マーカー／シンテニー）。横軸はターゲットA座標、薄い帯が最終推定区間、右端の数字は各根拠の支持数です。",
+  "anchorPlotCaption":"各点＝一意にマッピングできたアンカー遺伝子。左下から右上へ並べば順方向、右下がりなら逆位を示します。",
+  "intervalPlotCaption":"上＝ソースB区間、下＝ターゲットA区間。線は各アンカーの対応を結び、色は向き（緑＝順方向・橙＝逆方向）を表します。",
+  "confidenceTip":"信頼度は独立した根拠（シンテニー・マーカー・リフトオーバー）がどれだけ一致するかで決まります。詳細は「仕組み」タブを参照してください。",
+  "uniqueAnchorsTip":"一意にマッピングできたアンカー数 / 全アンカー数。",
+  "oriCountsTip":"順方向（→）と逆方向（←）に対応したアンカーの本数。"
 }
