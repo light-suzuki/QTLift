@@ -12,7 +12,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .genomes import LOCAL_CONFIG, detect_genomes
-from .pipeline import run_job
 from .tools import detect_tools
 from .providers import PROVIDERS, provider_status
 from .jobs import JobManager

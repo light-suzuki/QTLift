@@ -117,9 +117,19 @@ def build_alignment_cache(source_fasta: str | Path, target_fasta: str | Path, ca
         command += ["bash", "-lc", shell_command]
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     else:
-        with gzip.open(tmp, "wb", compresslevel=1) as handle:
-            result = subprocess.run([minimap2_path, "-x", "asm20", "-I", "1G", "-K", "50M", "--secondary=no", "-c", "-t", str(thread_count),
-                                     str(target), str(source)], stdout=handle, stderr=subprocess.PIPE)
+        # subprocess.run(stdout=handle) writes to handle.fileno() — the raw file under the gzip
+        # wrapper — so the ".paf.gz" ends up uncompressed and lift_interval later fails to read
+        # it. Stream minimap2's stdout through the compressor instead, with stderr to a file so a
+        # full stderr pipe cannot deadlock the single-reader copy.
+        stderr_file = tmp.with_suffix(tmp.suffix + ".stderr")
+        with gzip.open(tmp, "wb", compresslevel=1) as handle, stderr_file.open("wb") as errors:
+            proc = subprocess.Popen([minimap2_path, "-x", "asm20", "-I", "1G", "-K", "50M", "--secondary=no", "-c", "-t", str(thread_count),
+                                     str(target), str(source)], stdout=subprocess.PIPE, stderr=errors)
+            shutil.copyfileobj(proc.stdout, handle)
+            proc.stdout.close()
+            proc.wait()
+        result = subprocess.CompletedProcess(proc.args, proc.returncode, stderr=stderr_file.read_bytes())
+        stderr_file.unlink(missing_ok=True)
     if result.returncode:
         tmp.unlink(missing_ok=True)
         stderr = result.stderr.decode("utf-8", errors="replace") if isinstance(result.stderr, bytes) else result.stderr

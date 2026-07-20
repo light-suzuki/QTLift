@@ -1,4 +1,4 @@
-import gzip,json,shutil,sys,tempfile,unittest
+import gzip,shutil,sys,tempfile,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT/"backend"))
 from qtlift.analysis import combine_intervals,evaluate_synteny,orientation_audit,score_confidence,select_anchors
