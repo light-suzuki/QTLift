@@ -118,6 +118,45 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("ChrX", str(cm.exception))
 
 
+class SeqidPreflightTests(unittest.TestCase):
+    """A source contig absent from the GFF must stop analysis with seqid examples (#49)."""
+
+    def _write_genome(self, root: Path, name: str, gff_seqid: str = "Chr1"):
+        ref = root / name
+        ref.mkdir()
+        (ref / "genome.fa").write_text(">Chr1\n" + "ACGT" * 500 + "\n", encoding="ascii")
+        (ref / "ann.gff3").write_text(
+            f"##gff-version 3\n{gff_seqid}\t.\tgene\t1\t100\t.\t+\t.\tID=g1\n"
+            f"{gff_seqid}\t.\tCDS\t1\t100\t.\t+\t0\tParent=g1\n",
+            encoding="utf-8",
+        )
+
+    def test_missing_gff_contig_stops_with_examples(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self._write_genome(root, "RefA")
+            self._write_genome(root, "RefB", gff_seqid="1")
+            payload = {"job_id": "seqid", "genome_root": str(root), "target_ref": "RefA", "source_ref": "RefB",
+                       "contig": "Chr1", "start": 1, "end": 500, "peak": 250}
+            with self.assertRaises(ValueError) as cm:
+                run_job(payload, directory)
+            message = str(cm.exception)
+            self.assertIn("Chr1", message)
+            self.assertIn("RefB", message)
+            self.assertIn("1", message)
+
+    def test_matching_gff_contig_proceeds(self):
+        from scripts.create_sample_data import main
+
+        main()
+        with tempfile.TemporaryDirectory() as directory:
+            payload = {"job_id": "seqid-ok", "genome_root": str(ROOT / "sample_data" / "genomes"),
+                       "target_ref": "RefA", "source_ref": "RefB",
+                       "contig": "Chr1", "start": 100, "end": 850, "peak": 450}
+            result = run_job(payload, directory)
+            self.assertEqual(result["status"], "completed")
+
+
 class PipelineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

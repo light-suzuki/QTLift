@@ -8,8 +8,51 @@ from Bio.Seq import Seq
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from qtlift.genomes import anchor_sequence, detect_genomes, genes_in_interval, validate_interval
+from qtlift.genomes import anchor_sequence, detect_genomes, genes_in_interval, gff_seqids, seqid_consistency, validate_interval
 from qtlift.models import Gene
+
+
+class SeqidConsistencyTests(unittest.TestCase):
+    """FASTA vs GFF sequence-name mismatches must be detected with concrete examples (#49)."""
+
+    def test_gff_seqids_collects_distinct_contigs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            gff = Path(directory) / "ann.gff3"
+            gff.write_text(
+                "##gff-version 3\n# a comment\n1\t.\tgene\t1\t4\t.\t+\t.\tID=g1\n"
+                "2\t.\tgene\t1\t4\t.\t+\t.\tID=g2\n1\t.\tgene\t10\t14\t.\t+\t.\tID=g3\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(gff_seqids(gff), ["1", "2"])
+
+    def test_complete_mismatch_reports_both_sides(self):
+        fasta = [{"name": "Chr1", "length": 100}, {"name": "Chr2", "length": 100}]
+        result = seqid_consistency(fasta, ["1", "2"])
+        self.assertEqual(result["matched"], 0)
+        self.assertEqual(result["fasta_only"], ["Chr1", "Chr2"])
+        self.assertEqual(result["gff_only"], ["1", "2"])
+        self.assertIn("Chr1", result["message"])
+        self.assertIn("1", result["message"])
+
+    def test_partial_mismatch_still_warns_with_examples(self):
+        fasta = [{"name": "Chr1", "length": 100}, {"name": "Chr2", "length": 100}]
+        result = seqid_consistency(fasta, ["Chr1", "1"])
+        self.assertEqual(result["matched"], 1)
+        self.assertEqual(result["gff_only"], ["1"])
+        self.assertIn("1", result["message"])
+        self.assertNotIn("Chr1", result["message"].split("GFF-only")[1])
+
+    def test_aliases_resolve_mismatch(self):
+        fasta = [{"name": "Chr1", "length": 100}, {"name": "Chr2", "length": 100}]
+        result = seqid_consistency(fasta, ["1", "2"], {"Chr1": "1", "Chr2": "2"})
+        self.assertEqual(result["matched"], 2)
+        self.assertEqual(result["message"], "")
+
+    def test_exact_match_produces_no_message(self):
+        fasta = [{"name": "Chr1", "length": 100}]
+        result = seqid_consistency(fasta, ["Chr1"])
+        self.assertEqual(result["matched"], 1)
+        self.assertEqual(result["message"], "")
 
 
 class GenomeLibraryTests(unittest.TestCase):
