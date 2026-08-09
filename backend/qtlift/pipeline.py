@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from .analysis import combine_intervals, evaluate_synteny, exact_hits, marker_interval, orientation_audit, score_confidence, select_anchors
+from .analysis import combine_intervals, evaluate_synteny, exact_hits, marker_interval, orientation_audit, score_confidence, select_anchors, anchor_contig_distribution
 from .genomes import anchor_sequence, detect_genomes, genes_in_interval, sequence_slice, validate_interval
 from .markers import parse_marker
 from .models import Params
@@ -99,6 +99,7 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
         if len(hits) > params.multi_hit_threshold: warnings.append(f"Anchor {gene.id} has excessive multi-hits ({len(hits)}).")
         anchor_hits.extend(hits)
     synteny_state, synteny, synteny_warn = evaluate_synteny(anchor_hits); warnings += synteny_warn
+    anchor_distribution = anchor_contig_distribution(anchor_hits)
     marker_hits = []
     for role, text in (payload.get("markers") or {}).items():
         marker, marker_warn = parse_marker(role, text); warnings += marker_warn
@@ -129,7 +130,8 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
             warnings.append(f"Liftover failed: {exc}")
     if effective_backend == "exact":
         warnings.append("BLAST+ unavailable; exact-sequence fallback was used for sample-compatible mapping.")
-    confidence, reasons, score_warn = score_confidence(synteny_state, synteny, marker_iv, liftover, anchor_hits); warnings += score_warn
+    confidence, reasons, score_warn = score_confidence(synteny_state, synteny, marker_iv, liftover, anchor_hits,
+                                                       major_fraction=anchor_distribution["major_fraction"] if anchor_distribution else None); warnings += score_warn
     candidates = combine_intervals(synteny, marker_iv, liftover)
     final = None if confidence == "Manual check" and len(candidates) > 1 else (candidates[0] if candidates else None)
     if final and (final.end-final.start+1) > (end-start+1)*3: warnings.append("Target interval is much larger than the source interval.")
@@ -137,6 +139,7 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
     summary = {"job_id": job_id, "name": payload.get("name") or "Unnamed region", "status": "completed", "confidence": confidence,
                "created_at": payload.get("_created_at") or datetime.now().isoformat(timespec="seconds"), "duration_sec": round(time.monotonic()-_t0, 1), "progress": 100, "stage": "Completed", "target_contig": target_contig or "",
                "reasons": reasons, "warnings": list(dict.fromkeys(warnings)), "synteny_state": synteny_state,
+               "synteny_anchor_distribution": anchor_distribution,
                "source": {"reference": source["name"], "contig": payload["contig"], "start": start, "end": end, "peak": peak},
                "source_label": f"{source['name']} {payload['contig']}:{start:,}-{end:,}", "target_reference": target["name"],
                "candidates": [x.as_dict() for x in candidates], "final": final.as_dict() if final else None,
