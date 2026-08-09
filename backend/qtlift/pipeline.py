@@ -28,11 +28,42 @@ class JobCancelled(RuntimeError):
     pass
 
 
-def _reject_ambiguous(reference: dict, side: str, kinds: tuple[str, ...]) -> None:
-    for kind in kinds:
-        if reference.get(f"{kind}_status") == "ambiguous":
-            candidates = ", ".join(reference.get(f"{kind}_candidates") or [])
-            raise ValueError(f"{side} reference '{reference['name']}' has multiple {kind.upper()} files ({candidates}); keep exactly one {kind.upper()} file per reference folder.")
+def preflight(payload: dict, libraries: dict[str, dict]) -> tuple[dict, dict, int, int | None, str | None]:
+    """Validate every input a job needs before any tool is launched. Raises ValueError with a
+    user-fixable message instead of leaking raw KeyError/StopIteration from the job flow."""
+    target_ref = payload.get("target_ref", "")
+    source_ref = payload.get("source_ref", "")
+    unknown = [name for name in (target_ref, source_ref) if name not in libraries]
+    if unknown:
+        available = ", ".join(sorted(libraries)) or "none"
+        raise ValueError(f"Unknown reference(s): {', '.join(unknown)}. Available references: {available}.")
+    target, source = libraries[target_ref], libraries[source_ref]
+    for side, reference, kinds in (("target", target, ("fasta",)), ("source", source, ("fasta", "gff"))):
+        for kind in kinds:
+            status = reference.get(f"{kind}_status")
+            candidates = reference.get(f"{kind}_candidates") or []
+            if status == "ambiguous":
+                raise ValueError(f"{side} reference '{reference['name']}' has multiple {kind.upper()} files ({', '.join(candidates)}); keep exactly one {kind.upper()} file per reference folder.")
+            if status != "ready" or not reference.get(kind):
+                raise ValueError(f"{side} reference '{reference['name']}' has no {kind.upper()} file ({reference['path']}).")
+    contig = payload.get("contig", "")
+    length = next((x["length"] for x in source.get("contigs", []) if x["name"] == contig), None)
+    if length is None:
+        raise ValueError(f"Source contig '{contig}' does not exist in reference '{source['name']}'.")
+    try:
+        start, end = int(payload["start"]), int(payload["end"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid source interval on '{contig}': {exc}") from exc
+    peak = payload.get("peak")
+    peak = int(peak) if peak not in (None, "") else None
+    try:
+        validate_interval(start, end, length, peak)
+    except ValueError as exc:
+        raise ValueError(f"Source interval is invalid on contig '{contig}' of '{source['name']}': {exc}") from exc
+    target_contig = (payload.get("target_contig") or "").strip() or None
+    if target_contig and not any(x["name"] == target_contig for x in target.get("contigs", [])):
+        raise ValueError(f"Target contig '{target_contig}' does not exist in reference '{target['name']}'.")
+    return target, source, length, peak, target_contig
 
 
 def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str], None] | None = None,
@@ -45,18 +76,12 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
             progress(percent, stage)
     update(2, "Loading genome library")
     libraries = {x["name"]: x for x in detect_genomes(payload["genome_root"])}
-    target, source = libraries[payload["target_ref"]], libraries[payload["source_ref"]]
-    _reject_ambiguous(target, "target", ("fasta",))
-    _reject_ambiguous(source, "source", ("fasta", "gff"))
-    start, end, peak = int(payload["start"]), int(payload["end"]), payload.get("peak")
-    peak = int(peak) if peak not in (None, "") else None
-    length = next(x["length"] for x in source["contigs"] if x["name"] == payload["contig"])
-    validate_interval(start, end, length, peak)
+    target, source, length, peak, target_contig = preflight(payload, libraries)
+    start, end = int(payload["start"]), int(payload["end"])
     update(8, "Reading source annotation")
     params = Params.preset(payload.get("preset", "Standard"))
     if payload.get("params"): params = Params(**{**asdict(params), **payload["params"]})
     backend=payload.get("mapping_backend", "auto"); provider_options=payload.get("provider_options") or {}
-    target_contig = (payload.get("target_contig") or "").strip() or None
     warnings: list[str] = validate_provider(backend, provider_options)
     tools = detect_tools(payload.get("tool_paths"))
     effective_backend = backend
