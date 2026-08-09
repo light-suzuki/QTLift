@@ -125,6 +125,39 @@ def _parent_ids(col9: str) -> list[str]:
     return []
 
 
+def gff_seqids(path: str | Path) -> list[str]:
+    """Distinct seqids (column 1) in a GFF3/GFF file, in first-appearance order."""
+    seen: list[str] = []
+    with _open_text(Path(path)) as handle:
+        for line in handle:
+            if line.startswith("#") or not line.strip():
+                continue
+            seqid = line.split("\t", 1)[0]
+            if seqid not in seen:
+                seen.append(seqid)
+    return seen
+
+
+def seqid_consistency(fasta_contigs: list[dict], gff_contigs: list[str], aliases: dict[str, str] | None = None) -> dict:
+    """Summarize FASTA vs GFF seqid agreement, applying ``gff_contig_aliases`` (FASTA name ->
+    GFF name) to the FASTA side before comparing. Returns matched counts, up to five example
+    names from each unmatched side, and a human-readable ``message`` (empty when they match)."""
+    aliases = aliases or {}
+    fasta_ids = [aliases.get(x["name"], x["name"]) for x in fasta_contigs]
+    fasta_set, gff_set = set(fasta_ids), set(gff_contigs)
+    fasta_only = sorted(fasta_set - gff_set)
+    gff_only = sorted(gff_set - fasta_set)
+    parts = []
+    if fasta_only:
+        parts.append(f"FASTA-only seqids (examples: {', '.join(fasta_only[:5])})")
+    if gff_only:
+        parts.append(f"GFF-only seqids (examples: {', '.join(gff_only[:5])})")
+    return {"fasta_count": len(fasta_ids), "gff_count": len(gff_contigs), "matched": len(fasta_set & gff_set),
+            "fasta_only": fasta_only[:5], "fasta_only_count": len(fasta_only),
+            "gff_only": gff_only[:5], "gff_only_count": len(gff_only),
+            "message": "FASTA and GFF sequence names do not fully match. " + "; ".join(parts) + "." if parts else ""}
+
+
 def _load_contig_features(path: str | Path, contig: str):
     """Read one contig into a feature graph: genes, CDS grouped by their parent id, and the
     parents/attributes of every id-bearing intermediate feature (candidate transcripts)."""

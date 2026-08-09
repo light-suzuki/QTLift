@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .analysis import combine_intervals, evaluate_synteny, exact_hits, marker_interval, orientation_audit, score_confidence, select_anchors, anchor_contig_distribution
-from .genomes import anchor_sequence, detect_genomes, genes_in_interval, sequence_slice, validate_interval
+from .genomes import anchor_sequence, detect_genomes, genes_in_interval, gff_seqids, seqid_consistency, sequence_slice, validate_interval
 from .markers import parse_marker
 from .models import Params
 from .reporting import write_outputs
@@ -97,6 +97,13 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
                 warnings.append(f"{effective_backend} BLAST failed for {qid}: {exc}; exact fallback used.")
         return exact_hits(qid,seq,target["fasta"],target["contigs"],source_start,target_contig)
     gff_contig = source.get("gff_contig_aliases", {}).get(payload["contig"], payload["contig"])
+    gff_contigs = gff_seqids(source["gff"])
+    if gff_contig not in gff_contigs:
+        examples = ", ".join(gff_contigs[:5]) or "(no feature rows)"
+        raise ValueError(f"Source contig '{payload['contig']}' (GFF name '{gff_contig}') has no features in '{source['name']}'. GFF seqids include: {examples}. FASTA and GFF sequence names must match.")
+    consistency = seqid_consistency(source["contigs"], gff_contigs, source.get("gff_contig_aliases"))
+    if consistency["message"]:
+        warnings.append(consistency["message"])
     genes = genes_in_interval(source["gff"], gff_contig, start, end, params.include_outside_edge_genes)
     for gene in genes:
         gene.contig = payload["contig"]
