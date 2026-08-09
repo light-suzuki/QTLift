@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from qtlift.analysis import (
+    anchor_contig_distribution,
     combine_intervals,
     evaluate_synteny,
     orientation_audit,
@@ -13,6 +14,54 @@ from qtlift.analysis import (
     select_anchors,
 )
 from qtlift.models import Gene, Hit, Interval, Params
+
+
+class SyntenyMajorContigTests(unittest.TestCase):
+    """Unique anchors outside the adopted major contig must be visible and must not
+    overstate confidence (#51)."""
+
+    def _forward(self, contig, count, start=0):
+        return [Hit(f"{contig}{i}", contig, start + i * 100, start + i * 100 + 10, "+", 100, 100, 1, "x", i * 90) for i in range(1, count + 1)]
+
+    def test_minority_anchors_warn_and_are_tracked(self):
+        hits = self._forward("A", 3) + self._forward("B", 2, start=300)
+        state, interval, warnings = evaluate_synteny(hits)
+        self.assertEqual(state, "forward")
+        self.assertEqual(interval.contig, "A")
+        self.assertTrue(any("outside the major contig" in w for w in warnings))
+        self.assertIn("B", " ".join(warnings))
+        distribution = anchor_contig_distribution(hits)
+        self.assertEqual(distribution["major_contig"], "A")
+        self.assertEqual(distribution["major_count"], 3)
+        self.assertEqual(distribution["total"], 5)
+        self.assertEqual(distribution["major_fraction"], 0.6)
+        self.assertEqual(len(distribution["minority"]), 2)
+        self.assertTrue(all(x["contig"] == "B" for x in distribution["minority"]))
+
+    def test_minority_fraction_caps_high(self):
+        hits = self._forward("A", 3) + self._forward("B", 2, start=300)
+        _state, synteny, _warnings = evaluate_synteny(hits)
+        marker = Interval("A", 100, 500)
+        confidence, _reasons, _warnings = score_confidence("forward", synteny, marker, None, hits, major_fraction=0.6)
+        self.assertNotEqual(confidence, "High")
+        confidence = score_confidence("forward", synteny, marker, None, hits, major_fraction=0.8)[0]
+        self.assertEqual(confidence, "High")
+
+    def test_all_anchors_same_contig_unchanged(self):
+        hits = self._forward("A", 5)
+        state, _interval, warnings = evaluate_synteny(hits)
+        self.assertEqual(state, "forward")
+        self.assertEqual(warnings, [])
+        distribution = anchor_contig_distribution(hits)
+        self.assertEqual(distribution["major_fraction"], 1.0)
+        self.assertEqual(distribution["minority"], [])
+
+    def test_four_of_five_warns_but_stays_high(self):
+        hits = self._forward("A", 4) + self._forward("B", 1, start=400)
+        _state, synteny, warnings = evaluate_synteny(hits)
+        self.assertTrue(any("outside the major contig" in w for w in warnings))
+        confidence = score_confidence("forward", synteny, Interval("A", 100, 500), None, hits, major_fraction=0.8)[0]
+        self.assertEqual(confidence, "High")
 
 
 class AnalysisTests(unittest.TestCase):

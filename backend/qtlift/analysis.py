@@ -7,6 +7,12 @@ from Bio.Seq import Seq
 from .genomes import sequence_slice
 from .models import Gene, Hit, Interval, Params
 
+# A major target contig must hold at least this fraction of unique anchor hits before a
+# synteny interval is built at all; High confidence additionally requires the major to
+# dominate beyond this so a split anchor set cannot overstate the result.
+SYNTENY_MAJOR_MIN_FRACTION = 0.6
+HIGH_MAJOR_FRACTION = 0.8
+
 
 def select_anchors(genes: list[Gene], start: int, end: int, peak: int | None, params: Params) -> list[Gene]:
     if not genes:
@@ -68,13 +74,27 @@ def exact_hits(query_id: str, sequence: str, target_fasta: str, contigs: list[di
     return hits
 
 
+def anchor_contig_distribution(hits: list[Hit]) -> dict | None:
+    """Contig distribution of uniquely mapped hits: the major contig, its share, and the
+    minority anchors that lie outside it (None when no unique hits exist)."""
+    usable = [h for h in hits if h.hit_count == 1]
+    if not usable:
+        return None
+    distribution = Counter(h.contig for h in usable)
+    major, count = distribution.most_common(1)[0]
+    return {"major_contig": major, "major_count": count, "total": len(usable),
+            "major_fraction": round(count / len(usable), 3),
+            "contigs": [{"contig": c, "count": n} for c, n in sorted(distribution.items(), key=lambda kv: (-kv[1], kv[0]))],
+            "minority": [{"anchor": h.query_id, "contig": h.contig} for h in usable if h.contig != major]}
+
+
 def evaluate_synteny(hits: list[Hit]) -> tuple[str, Interval | None, list[str]]:
     usable = [h for h in hits if h.hit_count == 1]
     if len(usable) < 2:
         return "failed", None, ["Too few unique anchor hits to infer synteny."]
     contigs = Counter(h.contig for h in usable)
     major, count = contigs.most_common(1)[0]
-    if count < len(usable) * 0.6:
+    if count < len(usable) * SYNTENY_MAJOR_MIN_FRACTION:
         return "split", None, ["Anchor hits are split across target contigs."]
     major_hits = sorted((h for h in usable if h.contig == major), key=lambda h: h.source_start or 0)
     coords = [(h.start+h.end)//2 for h in major_hits]
@@ -84,6 +104,10 @@ def evaluate_synteny(hits: list[Hit]) -> tuple[str, Interval | None, list[str]]:
     elif dec/total >= .8: state, strand = "reverse", "-"
     else: state, strand = "partial", "."
     warnings = [] if state in ("forward", "reverse") else ["Anchor order is only partially collinear."]
+    minority = [h for h in usable if h.contig != major]
+    if minority:
+        names = ", ".join(f"{h.query_id}->{h.contig}" for h in minority[:5])
+        warnings.append(f"{len(minority)} of {len(usable)} unique anchor hits lie outside the major contig {major}: {names}.")
     return state, Interval(major, min(h.start for h in major_hits), max(h.end for h in major_hits), strand, "synteny"), warnings
 
 
@@ -118,8 +142,10 @@ def orientation_audit(synteny: Interval | None, marker: Interval | None, liftove
     return reconcile_orientation([x for x in (synteny, marker, liftover) if x])
 
 
-def score_confidence(synteny_state: str, synteny: Interval | None, marker: Interval | None, liftover: Interval | None, anchor_hits: list[Hit]) -> tuple[str, list[str], list[str]]:
+def score_confidence(synteny_state: str, synteny: Interval | None, marker: Interval | None, liftover: Interval | None, anchor_hits: list[Hit], major_fraction: float | None = None) -> tuple[str, list[str], list[str]]:
     reasons, warnings = [], []
+    if major_fraction is not None and major_fraction < HIGH_MAJOR_FRACTION:
+        warnings.append(f"Unique anchor hits are spread across target contigs (major fraction {major_fraction:.0%}); confidence is capped below High.")
     evidence = [x for x in (synteny, marker, liftover) if x]
     oriented = [x for x in evidence if x.strand in ("+", "-")]
     unique = sum(h.hit_count == 1 for h in anchor_hits)
@@ -138,7 +164,7 @@ def score_confidence(synteny_state: str, synteny: Interval | None, marker: Inter
             return "Manual check", ["Independent evidence overlaps but disagrees on orientation and cannot be combined."], warnings
     if evidence and not oriented:
         warnings.append("Orientation is unresolved: no strand-informative evidence; the interval strand is reported as '.'.")
-    if synteny_state in ("forward", "reverse") and unique >= 4 and len(evidence) >= 2 and agree:
+    if synteny_state in ("forward", "reverse") and unique >= 4 and len(evidence) >= 2 and agree and (major_fraction is None or major_fraction >= HIGH_MAJOR_FRACTION):
         confidence = "High"; reasons.append("At least two evidence classes agree with four or more unique collinear anchors.")
     elif synteny and unique >= 3 and synteny_state in ("forward", "reverse", "partial"):
         confidence = "Medium"; reasons.append("A coherent anchor interval is supported, but independent evidence is limited.")
