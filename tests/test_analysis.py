@@ -9,6 +9,7 @@ from qtlift.analysis import (
     anchor_contig_distribution,
     combine_intervals,
     evaluate_synteny,
+    marker_interval,
     orientation_audit,
     score_confidence,
     select_anchors,
@@ -107,6 +108,57 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(confidence, "Manual check")
         self.assertEqual(len(combine_intervals(synteny, marker, None)), 2)
         self.assertIn("inconsistent", " ".join(warnings))
+
+
+class MarkerIntervalTests(unittest.TestCase):
+    """Unique markers split across target contigs must be surfaced, never silently dropped (#50)."""
+
+    def _hits(self, rows):
+        return [Hit(qid, contig, start, end, "+", 100, 100, 1, "x", start) for qid, contig, start, end in rows]
+
+    def _anchor_hits(self, count):
+        return [Hit(str(i), "chr1", 100 + i, 101 + i, "+", 100, 100) for i in range(count)]
+
+    def test_same_contig_markers_keep_interval(self):
+        hits = self._hits([("m1", "chr1", 100, 150), ("m2", "chr1", 200, 250)])
+        interval, warnings, split = marker_interval(hits)
+        self.assertIsNotNone(interval)
+        self.assertEqual(interval.contig, "chr1")
+        self.assertEqual(warnings, [])
+        self.assertIsNone(split)
+
+    def test_split_markers_warn_and_report_minority(self):
+        hits = self._hits([("m1", "chr1", 100, 150), ("m2", "chr1", 200, 250), ("m3", "chr2", 300, 350)])
+        interval, warnings, split = marker_interval(hits)
+        self.assertIsNotNone(interval)
+        self.assertEqual(interval.contig, "chr1")
+        self.assertTrue(any("split" in w for w in warnings))
+        self.assertIn("m3", " ".join(warnings))
+        self.assertIn("chr2", " ".join(warnings))
+        self.assertEqual(split["major_contig"], "chr1")
+        self.assertEqual(split["major_count"], 2)
+        self.assertEqual(split["total"], 3)
+        self.assertEqual(split["minority"], [{"marker": "m3", "contig": "chr2"}])
+
+    def test_split_markers_do_not_reach_high(self):
+        hits = self._hits([("m1", "chr1", 100, 150), ("m2", "chr1", 200, 250), ("m3", "chr2", 300, 350)])
+        interval, _warnings, split = marker_interval(hits)
+        confidence, _reasons, warnings = score_confidence(
+            "forward", Interval("chr1", 100, 500), interval, None, self._anchor_hits(5), marker_split=bool(split)
+        )
+        self.assertNotEqual(confidence, "High")
+        self.assertTrue(any("split" in w for w in warnings))
+        confidence = score_confidence(
+            "forward", Interval("chr1", 100, 500), interval, None, self._anchor_hits(5), marker_split=False
+        )[0]
+        self.assertEqual(confidence, "High")
+
+    def test_markers_on_different_contigs_stay_unavailable(self):
+        hits = self._hits([("m1", "chr1", 100, 150), ("m2", "chr2", 200, 250)])
+        interval, warnings, split = marker_interval(hits)
+        self.assertIsNone(interval)
+        self.assertTrue(any("different target contigs" in w for w in warnings))
+        self.assertIsNotNone(split)
 
 
 class OrientationTests(unittest.TestCase):

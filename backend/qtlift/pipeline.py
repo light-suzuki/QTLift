@@ -149,7 +149,7 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
         if not sequence and marker.contig and marker.start and marker.end:
             sequence = sequence_slice(source["fasta"], marker.contig, marker.start, marker.end)
         if sequence: marker_hits += map_query(marker.name, sequence, marker.start)
-    marker_iv, marker_warn = marker_interval(marker_hits); warnings += marker_warn
+    marker_iv, marker_warn, marker_split = marker_interval(marker_hits); warnings += marker_warn
     update(84, "Marker mapping completed")
     liftover = None
     liftover_cache = None
@@ -172,7 +172,7 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
     if effective_backend == "exact":
         warnings.append("BLAST+ unavailable; exact-sequence fallback was used for sample-compatible mapping.")
     confidence, reasons, score_warn = score_confidence(synteny_state, synteny, marker_iv, liftover, anchor_hits,
-                                                       major_fraction=anchor_distribution["major_fraction"] if anchor_distribution else None); warnings += score_warn
+                                                       major_fraction=anchor_distribution["major_fraction"] if anchor_distribution else None, marker_split=bool(marker_split)); warnings += score_warn
     candidates = combine_intervals(synteny, marker_iv, liftover)
     final = None if confidence == "Manual check" and len(candidates) > 1 else (candidates[0] if candidates else None)
     if final and (final.end-final.start+1) > (end-start+1)*3: warnings.append("Target interval is much larger than the source interval.")
@@ -188,6 +188,7 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
                "evidence": {"liftover": liftover.as_dict() if liftover else None, "markers": marker_iv.as_dict() if marker_iv else None, "synteny": synteny.as_dict() if synteny else None},
                "orientation": orientation_audit(synteny, marker_iv, liftover),
                "marker_hits": [asdict(x) for x in marker_hits], "anchor_hits": [asdict(x) for x in anchor_hits], "anchors": [asdict(x) for x in anchors],
+               "marker_split": marker_split,
                "params": asdict(params), "tools": tools, "mapping_backend": backend, "effective_backend": effective_backend,
                "liftover_cache": str(liftover_cache) if liftover_cache else None}
     job_dir = Path(jobs_root)/job_id

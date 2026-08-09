@@ -111,15 +111,30 @@ def evaluate_synteny(hits: list[Hit]) -> tuple[str, Interval | None, list[str]]:
     return state, Interval(major, min(h.start for h in major_hits), max(h.end for h in major_hits), strand, "synteny"), warnings
 
 
-def marker_interval(hits: list[Hit]) -> tuple[Interval | None, list[str]]:
+def _marker_split_message(split: dict) -> str:
+    names = ", ".join(f"{x['marker']}->{x['contig']}" for x in split["minority"][:5])
+    return f"Unique marker hits are split across target contigs: {split['major_count']}/{split['total']} on {split['major_contig']}; minority: {names}."
+
+
+def marker_interval(hits: list[Hit]) -> tuple[Interval | None, list[str], dict | None]:
+    """Interval from uniquely mapped markers on their most common target contig. Unique markers
+    that map elsewhere are never silently dropped: the split detail is returned (and surfaced
+    as a warning) so confidence stays honest."""
     unique = [h for h in hits if h.hit_count == 1]
     if len(unique) < 2:
-        return None, ["Fewer than two uniquely mapped markers; marker interval unavailable."]
-    major, count = Counter(h.contig for h in unique).most_common(1)[0]
+        return None, ["Fewer than two uniquely mapped markers; marker interval unavailable."], None
+    distribution = Counter(h.contig for h in unique)
+    major, count = distribution.most_common(1)[0]
+    split = None
+    if len(distribution) > 1:
+        split = {"major_contig": major, "major_count": count, "total": len(unique),
+                 "minority": [{"marker": h.query_id, "contig": h.contig} for h in unique if h.contig != major]}
     if count < 2:
-        return None, ["Unique marker hits occur on different target contigs."]
+        detail = f" {_marker_split_message(split)}" if split else ""
+        return None, [f"Unique marker hits occur on different target contigs.{detail}"], split
     rows = [h for h in unique if h.contig == major]
-    return Interval(major, min(h.start for h in rows), max(h.end for h in rows), ".", "markers"), []
+    warnings = [_marker_split_message(split)] if split else []
+    return Interval(major, min(h.start for h in rows), max(h.end for h in rows), ".", "markers"), warnings, split
 
 
 def reconcile_orientation(intervals: list[Interval]) -> dict:
@@ -142,10 +157,12 @@ def orientation_audit(synteny: Interval | None, marker: Interval | None, liftove
     return reconcile_orientation([x for x in (synteny, marker, liftover) if x])
 
 
-def score_confidence(synteny_state: str, synteny: Interval | None, marker: Interval | None, liftover: Interval | None, anchor_hits: list[Hit], major_fraction: float | None = None) -> tuple[str, list[str], list[str]]:
+def score_confidence(synteny_state: str, synteny: Interval | None, marker: Interval | None, liftover: Interval | None, anchor_hits: list[Hit], major_fraction: float | None = None, marker_split: bool = False) -> tuple[str, list[str], list[str]]:
     reasons, warnings = [], []
     if major_fraction is not None and major_fraction < HIGH_MAJOR_FRACTION:
         warnings.append(f"Unique anchor hits are spread across target contigs (major fraction {major_fraction:.0%}); confidence is capped below High.")
+    if marker_split:
+        warnings.append("Marker evidence is split across target contigs and does not support High confidence.")
     evidence = [x for x in (synteny, marker, liftover) if x]
     oriented = [x for x in evidence if x.strand in ("+", "-")]
     unique = sum(h.hit_count == 1 for h in anchor_hits)
@@ -164,7 +181,7 @@ def score_confidence(synteny_state: str, synteny: Interval | None, marker: Inter
             return "Manual check", ["Independent evidence overlaps but disagrees on orientation and cannot be combined."], warnings
     if evidence and not oriented:
         warnings.append("Orientation is unresolved: no strand-informative evidence; the interval strand is reported as '.'.")
-    if synteny_state in ("forward", "reverse") and unique >= 4 and len(evidence) >= 2 and agree and (major_fraction is None or major_fraction >= HIGH_MAJOR_FRACTION):
+    if synteny_state in ("forward", "reverse") and unique >= 4 and len(evidence) >= 2 and agree and (major_fraction is None or major_fraction >= HIGH_MAJOR_FRACTION) and not marker_split:
         confidence = "High"; reasons.append("At least two evidence classes agree with four or more unique collinear anchors.")
     elif synteny and unique >= 3 and synteny_state in ("forward", "reverse", "partial"):
         confidence = "Medium"; reasons.append("A coherent anchor interval is supported, but independent evidence is limited.")
