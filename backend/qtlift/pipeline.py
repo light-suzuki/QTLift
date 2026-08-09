@@ -28,6 +28,13 @@ class JobCancelled(RuntimeError):
     pass
 
 
+def _reject_ambiguous(reference: dict, side: str, kinds: tuple[str, ...]) -> None:
+    for kind in kinds:
+        if reference.get(f"{kind}_status") == "ambiguous":
+            candidates = ", ".join(reference.get(f"{kind}_candidates") or [])
+            raise ValueError(f"{side} reference '{reference['name']}' has multiple {kind.upper()} files ({candidates}); keep exactly one {kind.upper()} file per reference folder.")
+
+
 def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str], None] | None = None,
             cancel_event: Event | None = None) -> dict:
     _t0 = time.monotonic()
@@ -39,6 +46,8 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
     update(2, "Loading genome library")
     libraries = {x["name"]: x for x in detect_genomes(payload["genome_root"])}
     target, source = libraries[payload["target_ref"]], libraries[payload["source_ref"]]
+    _reject_ambiguous(target, "target", ("fasta",))
+    _reject_ambiguous(source, "source", ("fasta", "gff"))
     start, end, peak = int(payload["start"]), int(payload["end"]), payload.get("peak")
     peak = int(peak) if peak not in (None, "") else None
     length = next(x["length"] for x in source["contigs"] if x["name"] == payload["contig"])
