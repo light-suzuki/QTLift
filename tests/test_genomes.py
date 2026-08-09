@@ -37,6 +37,46 @@ class GenomeLibraryTests(unittest.TestCase):
         self.assertGreaterEqual(len(genes), 6)
         self.assertTrue(genes[0].cds)
 
+    def test_multiple_fasta_candidates_are_ambiguous(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ref = Path(directory) / "Duplicated"
+            ref.mkdir()
+            (ref / "genomeA.fa").write_text(">Chr1\nACGTACGT\n", encoding="ascii")
+            (ref / "genomeB.fasta").write_text(">Chr1\nACGTACGT\n", encoding="ascii")
+            (ref / "ann.gff3").write_text("##gff-version 3\nChr1\t.\tgene\t1\t4\t.\t+\t.\tID=g1\n", encoding="ascii")
+            (ref / "ann2.gff").write_text("##gff-version 3\nChr1\t.\tgene\t1\t4\t.\t+\t.\tID=g1\n", encoding="ascii")
+            row = detect_genomes(Path(directory))[0]
+            self.assertEqual(row["fasta_status"], "ambiguous")
+            self.assertEqual(row["gff_status"], "ambiguous")
+            self.assertIsNone(row["fasta"])
+            self.assertIsNone(row["gff"])
+            self.assertEqual(len(row["fasta_candidates"]), 2)
+            self.assertEqual(len(row["gff_candidates"]), 2)
+            self.assertEqual(row["contigs"], [])
+            self.assertEqual(row["gene_count"], 0)
+
+    def test_gz_and_plain_duplicates_are_ambiguous(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ref = Path(directory) / "Duplicated"
+            ref.mkdir()
+            (ref / "genome.fa").write_text(">Chr1\nACGT\n", encoding="ascii")
+            (ref / "genome.fa.gz").write_text("not really gzip", encoding="ascii")
+            row = detect_genomes(Path(directory))[0]
+            self.assertEqual(row["fasta_status"], "ambiguous")
+            self.assertEqual(len(row["fasta_candidates"]), 2)
+
+    def test_single_file_folder_stays_ready(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ref = Path(directory) / "Ready"
+            ref.mkdir()
+            (ref / "genome.fa").write_text(">Chr1\nACGT\n", encoding="ascii")
+            (ref / "ann.gff3").write_text("##gff-version 3\nChr1\t.\tgene\t1\t2\t.\t+\t.\tID=g1\n", encoding="ascii")
+            row = detect_genomes(Path(directory))[0]
+            self.assertEqual(row["fasta_status"], "ready")
+            self.assertEqual(row["gff_status"], "ready")
+            self.assertEqual(row["gene_count"], 1)
+            self.assertEqual(len(row["fasta_candidates"]), 1)
+
 
 class Gff3ParserTests(unittest.TestCase):
     """Species-agnostic GFF3 gene->transcript->CDS resolution and include_outside contract."""

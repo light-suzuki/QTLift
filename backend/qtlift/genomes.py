@@ -45,12 +45,20 @@ def detect_genomes(root: str | Path) -> list[dict]:
     result = []
     for directory in sorted(p for p in root.iterdir() if p.is_dir()):
         files = [p for p in directory.iterdir() if p.is_file()]
-        fasta = next((p for p in files if _base_suffix(p) in FASTA_SUFFIXES), None)
-        gff = next((p for p in files if _base_suffix(p) in GFF_SUFFIXES), None)
+        fasta_candidates = sorted(p for p in files if _base_suffix(p) in FASTA_SUFFIXES)
+        gff_candidates = sorted(p for p in files if _base_suffix(p) in GFF_SUFFIXES)
+        # A reference folder is exactly one FASTA + one GFF; several candidates are ambiguous
+        # and must not silently resolve to the first file (a backup/old version could be used).
+        fasta = fasta_candidates[0] if len(fasta_candidates) == 1 else None
+        gff = gff_candidates[0] if len(gff_candidates) == 1 else None
         contigs = fasta_lengths(fasta) if fasta else []
-        result.append({"name": directory.name, "path": str(directory), "fasta": str(fasta) if fasta else None,
-                       "gff": str(gff) if gff else None, "fasta_status": "ready" if fasta else "missing",
-                       "gff_status": "ready" if gff else "missing", "contigs": contigs,
+        result.append({"name": directory.name, "path": str(directory),
+                       "fasta": str(fasta) if fasta else None, "gff": str(gff) if gff else None,
+                       "fasta_candidates": [str(p) for p in fasta_candidates],
+                       "gff_candidates": [str(p) for p in gff_candidates],
+                       "fasta_status": "ready" if len(fasta_candidates) == 1 else ("ambiguous" if fasta_candidates else "missing"),
+                       "gff_status": "ready" if len(gff_candidates) == 1 else ("ambiguous" if gff_candidates else "missing"),
+                       "contigs": contigs,
                        "gene_count": count_genes(gff) if gff else 0})
     return result
 
