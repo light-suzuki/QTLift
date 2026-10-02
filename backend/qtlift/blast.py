@@ -134,12 +134,12 @@ def _collapse_loci(rows: list[Hit], max_gap: int = 100_000) -> list[Hit]:
     for locus in loci:
         locus.hit_count = len(loci)
     return loci
-def blast_many(queries: list[tuple[str, str, int | None]], target_fasta: str, backend: str, distro: str | None = None, target_db: str | None = None, target_contig: str | None = None, min_identity: float = 0.0, min_coverage: float = 0.0) -> dict[str, list[Hit]]:
+def blast_many(queries: list[tuple[str, str, int | None]], target_fasta: str, backend: str, distro: str | None = None, target_db: str | None = None, target_contig: str | None = None, min_identity: float = 0.0, min_coverage: float = 0.0, *, blastn_path: str | None = None) -> dict[str, list[Hit]]:
     if backend not in ("windows","wsl"): raise ValueError(f"Unsupported BLAST backend: {backend}")
     with tempfile.TemporaryDirectory(prefix="qtlift-") as tmp:
         query=Path(tmp)/"query.fa"; query_text="".join(f">{query_id}\n{sequence}\n" for query_id, sequence, _ in queries); query.write_text(query_text,encoding="ascii")
         if backend=="windows":
-            exe=shutil.which("blastn")
+            exe=blastn_path or shutil.which("blastn")
             if not exe: raise RuntimeError("Windows blastn is unavailable")
             cmd=[exe,"-query",str(query),"-subject",str(Path(target_fasta).resolve()),"-outfmt",f"6 {FIELDS}","-dust","no","-max_target_seqs","20"]
         else:
@@ -166,5 +166,5 @@ def blast_many(queries: list[tuple[str, str, int | None]], target_fasta: str, ba
         return {query_id: collapse_and_filter(rows) for query_id, rows in grouped.items()}
 
 
-def blast_subject(query_id: str, sequence: str, target_fasta: str, backend: str, source_start: int | None = None, distro: str | None = None, target_db: str | None = None, target_contig: str | None = None, min_identity: float = 0.0, min_coverage: float = 0.0) -> list[Hit]:
-    return blast_many([(query_id, sequence, source_start)], target_fasta, backend, distro, target_db, target_contig, min_identity, min_coverage).get(query_id, [])
+def blast_subject(query_id: str, sequence: str, target_fasta: str, backend: str, source_start: int | None = None, distro: str | None = None, target_db: str | None = None, target_contig: str | None = None, min_identity: float = 0.0, min_coverage: float = 0.0, *, blastn_path: str | None = None) -> list[Hit]:
+    return blast_many([(query_id, sequence, source_start)], target_fasta, backend, distro, target_db, target_contig, min_identity, min_coverage, blastn_path=blastn_path).get(query_id, [])
