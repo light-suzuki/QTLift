@@ -12,9 +12,10 @@ def _tsv(path: Path, rows: list[dict], fields: list[str]):
         writer.writeheader(); writer.writerows(rows)
 
 
-def write_outputs(job_dir: str | Path, summary: dict, marker_hits: list[dict], anchor_hits: list[dict], params: dict, log_text: str = "") -> list[str]:
+def write_outputs(job_dir: str | Path, summary: dict, marker_hits: list[dict], anchor_hits: list[dict], params: dict, log_text: str = "", *, write_summary: bool = True) -> list[str]:
     out = Path(job_dir); out.mkdir(parents=True, exist_ok=True); (out/"logs").mkdir(exist_ok=True)
-    (out/"summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    if write_summary:
+        (out/"summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     flat = {"job_id": summary["job_id"], "name": summary.get("name", ""), "status": summary.get("status", "completed"),
             "confidence": summary["confidence"], "source": summary["source_label"], "target": summary.get("final_label", ""),
             "duration_sec": summary.get("duration_sec", ""), "warning_count": len(summary.get("warnings", []))}

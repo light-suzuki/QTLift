@@ -67,7 +67,7 @@ def preflight(payload: dict, libraries: dict[str, dict]) -> tuple[dict, dict, in
 
 
 def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str], None] | None = None,
-            cancel_event: Event | None = None) -> dict:
+            cancel_event: Event | None = None, *, persist_summary: bool = True) -> dict:
     _t0 = time.monotonic()
     def update(percent: int, stage: str) -> None:
         if cancel_event and cancel_event.is_set():
@@ -193,6 +193,7 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
                "liftover_cache": str(liftover_cache) if liftover_cache else None}
     job_dir = Path(jobs_root)/job_id
     update(95, "Writing reports")
-    summary["files"] = write_outputs(job_dir, summary, summary["marker_hits"], summary["anchor_hits"], summary["params"], "Job completed\n")
-    (job_dir/"summary.json").write_text(__import__('json').dumps(summary,indent=2,ensure_ascii=False),encoding='utf-8')
+    summary["files"] = write_outputs(job_dir, summary, summary["marker_hits"], summary["anchor_hits"], summary["params"], "Job completed\n", write_summary=persist_summary)
+    if persist_summary:
+        (job_dir/"summary.json").write_text(__import__('json').dumps(summary,indent=2,ensure_ascii=False),encoding='utf-8')
     return summary
