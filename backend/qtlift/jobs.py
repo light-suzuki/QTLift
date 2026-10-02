@@ -57,18 +57,27 @@ class JobManager:
     def _run(self, payload: dict, event: threading.Event) -> None:
         job_id = payload["job_id"]
         def progress(percent: int, stage: str) -> None:
-            current = self.get(job_id)
-            current.update(status="cancelling" if event.is_set() else "running", progress=percent, stage=stage)
-            _write_json(self._path(job_id), current)
+            with self._lock:
+                current = self.get(job_id)
+                current.update(status="cancelling" if event.is_set() else "running", progress=percent, stage=stage)
+                _write_json(self._path(job_id), current)
         try:
             progress(1, "Starting")
-            run_job(payload, self.jobs_root, progress, event)
+            # The manager owns summary publication, including the completion boundary.
+            # Reports may take time to write; a cancellation accepted then must still win.
+            summary = run_job(payload, self.jobs_root, progress, event, persist_summary=False)
+            with self._lock:
+                if event.is_set():
+                    raise JobCancelled("Job cancelled by user.")
+                _write_json(self._path(job_id), summary)
         except JobCancelled as exc:
-            current = self.get(job_id); current.update(status="cancelled", stage="Cancelled", error=str(exc))
-            _write_json(self._path(job_id), current)
+            with self._lock:
+                current = self.get(job_id); current.update(status="cancelled", stage="Cancelled", error=str(exc))
+                _write_json(self._path(job_id), current)
         except Exception as exc:
-            current = self.get(job_id); current.update(status="failed", stage="Failed", error=str(exc))
-            _write_json(self._path(job_id), current)
+            with self._lock:
+                current = self.get(job_id); current.update(status="failed", stage="Failed", error=str(exc))
+                _write_json(self._path(job_id), current)
         finally:
             with self._lock:
                 self._events.pop(job_id, None); self._futures.pop(job_id, None)
@@ -81,14 +90,16 @@ class JobManager:
 
     def cancel(self, job_id: str) -> dict:
         with self._lock:
+            row = self.get(job_id)
             event, future = self._events.get(job_id), self._futures.get(job_id)
-            if not event or not future:
-                return self.get(job_id)
+            if not event or not future or row.get("status") in ("completed", "cancelled", "failed"):
+                return row
             event.set()
             if future.cancel():
-                row = self.get(job_id); row.update(status="cancelled", stage="Cancelled before start")
+                row.update(status="cancelled", stage="Cancelled before start")
                 _write_json(self._path(job_id), row)
+                self._events.pop(job_id, None); self._futures.pop(job_id, None)
             else:
-                row = self.get(job_id); row.update(status="cancelling", stage="Cancellation requested")
+                row.update(status="cancelling", stage="Cancellation requested")
                 _write_json(self._path(job_id), row)
             return row
