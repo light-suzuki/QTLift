@@ -1,15 +1,37 @@
 import sys
 import unittest
+from unittest.mock import Mock, patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from qtlift.blast import _collapse_loci, _find_blast_entry
+from qtlift.blast import _collapse_loci, _find_blast_entry, blast_many, blast_subject
 from qtlift.models import Hit
 
 
 class BlastTests(unittest.TestCase):
+    def test_native_blast_uses_explicit_path(self):
+        output = "q\tchrT\tN/A\t11\t14\t100\t1\t4\t4\n"
+        with patch("qtlift.blast.shutil.which", return_value=None), \
+                patch("qtlift.blast.subprocess.run", return_value=Mock(stdout=output)) as run:
+            hits = blast_many([("q", "ACGT", 3)], "target.fa", "windows",
+                              blastn_path="/custom tools/blastn")
+        self.assertEqual(run.call_args.args[0][0], "/custom tools/blastn")
+        self.assertEqual(hits["q"][0].source_start, 3)
+
+    def test_native_blast_still_discovers_path_by_default(self):
+        with patch("qtlift.blast.shutil.which", return_value="/on-path/blastn"), \
+                patch("qtlift.blast.subprocess.run", return_value=Mock(stdout="")) as run:
+            blast_many([("q", "ACGT", None)], "target.fa", "windows")
+        self.assertEqual(run.call_args.args[0][0], "/on-path/blastn")
+
+    def test_blast_subject_forwards_explicit_path(self):
+        with patch("qtlift.blast.blast_many", return_value={"q": []}) as batch:
+            blast_subject("q", "ACGT", "target.fa", "windows",
+                          blastn_path="/custom tools/blastn")
+        self.assertEqual(batch.call_args.kwargs["blastn_path"], "/custom tools/blastn")
+
     def test_blast_contig_entry_resolution(self):
         metadata = "gnl|BL_ORD_ID|0\tchr1\ngnl|BL_ORD_ID|1\tchr2 description\n"
         self.assertEqual(_find_blast_entry(metadata, "chr2"), "gnl|BL_ORD_ID|1")

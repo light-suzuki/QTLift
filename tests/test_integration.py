@@ -10,10 +10,12 @@ reaches the tools through WSL. When neither is available the test skips, so the 
 unit-test run is unaffected.
 """
 import random
+import os
 import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +23,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 from qtlift.blast import blast_many
 from qtlift.liftover import build_alignment_cache, lift_interval
+from qtlift.pipeline import run_job
 
 # "windows" here just means "run the local blastn binary directly" (not via wsl.exe); on the
 # Linux CI runner that is the native blastn, on a Windows dev box we fall back to WSL blastn.
@@ -48,6 +51,30 @@ class IntegrationTests(unittest.TestCase):
         self.assertGreaterEqual(hits[0].identity, 95)
         # The motif was embedded after the first 500 bp flank (1-based position 501).
         self.assertLess(abs(hits[0].start - 501), 5)
+
+    @unittest.skipUnless(shutil.which("blastn"), "requires native blastn")
+    def test_configured_blast_path_works_without_path_discovery(self):
+        from scripts.create_sample_data import main, motif
+
+        main()
+        executable = shutil.which("blastn")
+        payload = {"genome_root": str(ROOT / "sample_data" / "genomes"),
+                   "target_ref": "RefA", "source_ref": "RefB", "contig": "Chr1",
+                   "start": 100, "end": 850, "tool_paths": {"blastn": executable},
+                   "markers": {"left_flanking": motif(1), "right_flanking": motif(7)}}
+        # Keep the installed binary and its runtime libraries, but remove PATH discovery.
+        for backend in ("auto", "windows"):
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as directory:
+                with patch.dict(os.environ, {"PATH": ""}):
+                    result = run_job({**payload, "mapping_backend": backend}, directory)
+                self.assertEqual(result["status"], "completed")
+                self.assertTrue(result["anchor_hits"])
+                self.assertTrue(result["marker_hits"])
+                self.assertEqual({h["method"] for h in result["anchor_hits"]}, {"blastn"})
+                self.assertEqual({h["method"] for h in result["marker_hits"]}, {"blastn"})
+                self.assertFalse(any("BLAST" in warning and
+                                     ("failed" in warning or "unavailable" in warning)
+                                     for warning in result["warnings"]))
 
     @unittest.skipUnless(HAVE_MINIMAP2, "requires minimap2 (native binary or via WSL)")
     def test_minimap2_liftover_projects_interval(self):

@@ -82,14 +82,17 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
     params = Params.preset(payload.get("preset", "Standard"))
     if payload.get("params"): params = Params(**{**asdict(params), **payload["params"]})
     backend=payload.get("mapping_backend", "auto"); provider_options=payload.get("provider_options") or {}
-    warnings: list[str] = validate_provider(backend, provider_options)
     tools = detect_tools(payload.get("tool_paths"))
+    # Detection already resolves explicit native paths; use that same executable in both
+    # mapping paths instead of discarding it and relying on PATH discovery again.
+    native_blastn_path = tools["blastn"]["path"] if tools["blastn"].get("runtime") == "windows" else None
+    warnings: list[str] = validate_provider(backend, provider_options, native_blastn_path=native_blastn_path)
     effective_backend = backend
     if backend == "auto":
         effective_backend = tools["blastn"].get("runtime") or ("wsl" if __import__('shutil').which('wsl.exe') else "exact")
     def map_query(qid,seq,source_start=None):
         if effective_backend in ("windows","wsl"):
-            try: return blast_subject(qid,seq,target["fasta"],effective_backend,source_start,provider_options.get("wsl_distro"),target.get("blast_db"),target_contig,params.min_identity,params.min_coverage)
+            try: return blast_subject(qid,seq,target["fasta"],effective_backend,source_start,provider_options.get("wsl_distro"),target.get("blast_db"),target_contig,params.min_identity,params.min_coverage,blastn_path=native_blastn_path)
             except Exception as exc:
                 if __import__('pathlib').Path(target["fasta"]).stat().st_size > 100_000_000:
                     warnings.append(f"{effective_backend} BLAST failed for {qid}: {exc}; exact fallback was disabled for this large target genome.")
@@ -130,7 +133,7 @@ def run_job(payload: dict, jobs_root: str | Path, progress: Callable[[int, str],
     batched = None
     if effective_backend in ("windows", "wsl"):
         try:
-            batched = blast_many(anchor_queries, target["fasta"], effective_backend, provider_options.get("wsl_distro"), target.get("blast_db"), target_contig, params.min_identity, params.min_coverage)
+            batched = blast_many(anchor_queries, target["fasta"], effective_backend, provider_options.get("wsl_distro"), target.get("blast_db"), target_contig, params.min_identity, params.min_coverage, blastn_path=native_blastn_path)
         except Exception as exc:
             warnings.append(f"{effective_backend} batched BLAST failed: {exc}; per-query fallback was used.")
     update(65, "Anchor mapping completed")
