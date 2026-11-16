@@ -1,7 +1,7 @@
 # QTLift
 
 [![CI](https://github.com/light-suzuki/QTLift/actions/workflows/ci.yml/badge.svg)](https://github.com/light-suzuki/QTLift/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/light-suzuki/=semver)](https://github.com/light-suzuki/QTLift/releases)
+[![Release](https://img.shields.io/github/v/release/light-suzuki/QTLift?sort=semver)](https://github.com/light-suzuki/QTLift/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 
