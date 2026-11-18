@@ -1,6 +1,6 @@
-fastapi>=0.162.0,<1
+fastapi>=0.163.0,<1
 uvicorn[standard]>=0.54.0,<1
-pydantic>=2.14.2,<3
+pydantic>=2.14.3,<3
 biopython>=1.88,<2
 python-multipart>=0.0.33,<1
 
